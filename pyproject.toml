@@ -1,0 +1,32 @@
+[project]
+name = "noneto-cli"
+version = "0.1.0"
+description = "Cliente de terminal no oficial para TIDAL."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "VincentPelos" }]
+keywords = ["tidal", "music", "terminal", "tui", "mpv"]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "tidalapi==0.8.11",
+    "requests==2.34.2",
+    "urllib3==2.8.0",
+    "defusedxml==0.7.1",
+    "textual==8.2.8",
+    "Pillow==12.3.0",
+    "numpy==2.5.3",
+]
+
+[project.urls]
+Repository = "https://github.com/VincentPelos/noneto-cli"
+
+[project.scripts]
+noneto = "noneto.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["noneto"]
