@@ -215,3 +215,21 @@ class VisualizerTuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertFalse(visualizer.running)
             player.send.assert_called_with("visualizer", False)
+
+    async def test_bars_follow_the_theme_gradient(self):
+        player = Mock(snapshot=Mock(return_value=PlaybackState()), bands=Mock(return_value=None))
+        app = NonetoApp(FakeLibrary(), player, theme="dracula")
+        async with app.run_test(size=(120, 38)) as pilot:
+            await pilot.pause()
+            visualizer = app.query_one(Visualizer)
+            styles = visualizer.bar_styles(6)
+            # Left to right through Dracula's own colors: cyan first, purple last.
+            self.assertEqual(styles[0].color.triplet.hex, "#8be9fd")
+            self.assertEqual(styles[-1].color.triplet.hex, "#bd93f9")
+            self.assertEqual(len({style.color.triplet.hex for style in styles}), 6)
+            app.theme = "nord"
+            await pilot.pause()
+            self.assertEqual(visualizer.bar_styles(6)[0].color.triplet.hex, "#5e81ac")
+            visualizer._lines = render_bars([1.0] * 6, 11, 1)
+            strip = visualizer.render_line(0)
+            self.assertEqual(strip.cell_length, visualizer.content_size.width)

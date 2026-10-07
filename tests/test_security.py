@@ -16,7 +16,7 @@ from noneto.auth.storage import protect, read_session, save_session
 from noneto.audio.mpv_install import install_mpv
 from noneto.audio.streams import stream_target, validate_dash, MAX_MANIFEST_BYTES
 from noneto.errors import AppError
-from noneto.security import https_url, terminal_text
+from noneto.security import https_url, pkce_code, terminal_text
 from noneto.services.tidal import TimedSession
 
 MPD = '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011">{}</MPD>'
@@ -83,33 +83,88 @@ class SecurityTests(unittest.TestCase):
             self.assertFalse(client.trust_env)
             response.close.assert_called_once()
 
-    def test_untrusted_authorization_link_is_neither_printed_nor_opened(self):
-        session = Mock()
-        session.get_link_login.return_value.verification_uri_complete = "https://tidal.com.evil.test/authorize"
+    @staticmethod
+    def pkce_session(login_url="https://login.tidal.com/authorize?client_id=x"):
+        session = Mock(is_pkce=False)
+        session.config.pkce_uri_redirect = "https://tidal.com/android/login/auth"
+        session.pkce_login_url.return_value = login_url
+        session.pkce_get_auth_token.return_value = {"access_token": "a"}
+        return session
+
+    def test_untrusted_authorization_link_is_never_shown(self):
+        session = self.pkce_session("https://login.tidal.com.evil.test/authorize")
+        notify, ask = Mock(), Mock()
+        with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)):
+            with self.assertRaises(AppError):
+                login(session, notify, ask)
+        notify.assert_not_called()
+        ask.assert_not_called()
+
+    def test_pkce_login_sends_only_the_validated_code(self):
+        session = self.pkce_session()
+        ask = Mock(return_value="  https://tidal.com/android/login/auth?code=abc-123_X&lang=es  ")
         notify = Mock()
         with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)), \
-             patch("noneto.auth.service.webbrowser.open") as browser:
-            with self.assertRaises(AppError):
-                login(session, notify)
-            browser.assert_not_called()
-            notify.assert_not_called()
-            session.process_link_login.assert_not_called()
+             patch("noneto.auth.service.save_session") as save:
+            login(session, notify, ask)
+        ask.assert_called_once_with("redirect", url="https://login.tidal.com/authorize?client_id=x",
+                                    redirect="https://tidal.com/android/login/auth")
+        session.pkce_get_auth_token.assert_called_once_with("https://tidal.com/android/login/auth?code=abc-123_X")
+        session.process_auth_token.assert_called_once_with({"access_token": "a"}, is_pkce_token=True)
+        save.assert_called_once_with(session)
+        self.assertEqual([c.args[0] for c in notify.call_args_list], ["session-started"])
 
-    def test_expired_refresh_token_restarts_login_but_network_error_does_not(self):
-        for error, should_restart in [(AuthenticationError("secret"), True), (requests.Timeout("secret"), False)]:
-            session = Mock()
+    def test_cancelled_or_invalid_redirect_never_contacts_tidal(self):
+        for answer in ("", None, "https://evil.test/android/login/auth?code=a",
+                       "https://tidal.com/android/login/auth?error=access_denied"):
+            session = self.pkce_session()
+            with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)):
+                with self.assertRaises(AppError):
+                    login(session, Mock(), Mock(return_value=answer))
+            session.pkce_get_auth_token.assert_not_called()
+
+    def test_rejected_code_is_reported_without_its_value(self):
+        session = self.pkce_session()
+        session.pkce_get_auth_token.side_effect = requests.HTTPError("code=secret")
+        with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)):
+            with self.assertRaises(AppError) as raised:
+                login(session, Mock(), Mock(return_value="https://tidal.com/android/login/auth?code=secret"))
+        self.assertNotIn("secret", str(raised.exception))
+
+    def test_pkce_code_validation(self):
+        redirect = "https://tidal.com/android/login/auth"
+        self.assertEqual(pkce_code(redirect + "/?code=Ab9", redirect), "Ab9")
+        for value in (None, "", "code=Ab9", "http://tidal.com/android/login/auth?code=a",
+                      "https://tidal.com:8443/android/login/auth?code=a", "https://user@tidal.com/android/login/auth?code=a",
+                      redirect, redirect + "?code=", redirect + "?code=a&code=b", redirect + "?code=a%20b",
+                      redirect + "?code=a#frag", redirect + "?error=x&code=a", "https://tidal.com/login?code=a"):
+            with self.assertRaises(AppError, msg=value):
+                pkce_code(value, redirect)
+
+    def test_stored_sessions_restore_only_when_pkce(self):
+        # Device-code sessions from earlier versions cannot reach Hi-Res: log in again with PKCE.
+        for is_pkce, error, expected in [(True, None, "session-restored"), (False, None, "session-upgrade"),
+                                         (True, AuthenticationError("secret"), "session-invalid")]:
+            session = self.pkce_session()
+            session.is_pkce = is_pkce
             session.load_oauth_session.side_effect = error
-            session.get_link_login.return_value.verification_uri_complete = "link.tidal.com/abc"
+            session.load_oauth_session.return_value = True
+            notify = Mock()
             with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: True)), \
                  patch("noneto.auth.service.read_session", return_value={}), \
-                 patch("noneto.auth.service.save_session"), patch("noneto.auth.service.webbrowser.open"):
-                if should_restart:
-                    login(session, Mock())
-                    session.process_link_login.assert_called_once()
-                else:
-                    with self.assertRaises(requests.Timeout):
-                        login(session, Mock())
-                    session.get_link_login.assert_not_called()
+                 patch("noneto.auth.service.save_session"):
+                login(session, notify, Mock(return_value="https://tidal.com/android/login/auth?code=a"))
+            self.assertEqual(notify.call_args_list[0].args[0], expected)
+            self.assertEqual(session.pkce_get_auth_token.called, expected != "session-restored")
+
+    def test_network_error_while_restoring_does_not_start_a_login(self):
+        session = self.pkce_session()
+        session.load_oauth_session.side_effect = requests.Timeout("secret")
+        with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: True)), \
+             patch("noneto.auth.service.read_session", return_value={}):
+            with self.assertRaises(requests.Timeout):
+                login(session, Mock(), Mock())
+        session.pkce_login_url.assert_not_called()
 
     def test_stored_session_schema_and_corruption(self):
         with tempfile.TemporaryDirectory() as directory:

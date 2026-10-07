@@ -7,8 +7,11 @@ smoothing and gravity on the way down.
 import time
 
 from rich.segment import Segment
+from rich.style import Style
 from textual.strip import Strip
 from textual.widget import Widget
+
+from .themes import VISUALIZER_STOPS, gradient
 
 BLOCKS = " ▁▂▃▄▅▆▇█"
 FPS = 30
@@ -94,6 +97,8 @@ class Visualizer(Widget):
         self._lines = []
         self._timer = None
         self._last = time.monotonic()
+        self._palette_key = None
+        self._styles = []
 
     @property
     def running(self):
@@ -111,10 +116,23 @@ class Visualizer(Widget):
         self._lines = []
         self.refresh()
 
+    def bar_styles(self, count):
+        """One style per bar: the theme's gradient from left to right, recomputed on theme change."""
+        theme = self.app.theme
+        if self._palette_key != (theme, count):
+            stops = VISUALIZER_STOPS.get(theme) or (self.app.current_theme.primary,)
+            base = self.rich_style
+            self._styles = [base + Style(color=color) for color in gradient(stops, count)]
+            self._palette_key = (theme, count)
+        return self._styles
+
     def render_line(self, y):
         width = self.content_size.width
-        line = self._lines[y] if y < len(self._lines) else ""
-        return Strip([Segment(line[:width].ljust(width), self.rich_style)], width)
+        line = (self._lines[y] if y < len(self._lines) else "")[:width].ljust(width)
+        styles = self.bar_styles(bar_count(width))
+        # Each bar is one cell plus its gap, as drawn by render_bars.
+        segments = [Segment(line[index * 2:index * 2 + 2], style) for index, style in enumerate(styles)]
+        return Strip([segment for segment in segments if segment.text], width)
 
     def tick(self):
         now = time.monotonic()

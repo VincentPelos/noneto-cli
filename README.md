@@ -44,13 +44,19 @@ Remove-Item -Recurse "$env:LOCALAPPDATA\Noneto"   # opcional: sesión, logs y mp
 
 ## Uso
 
-1. La primera vez se abre el navegador para autorizar Noneto CLI. Si no se abre, usa el enlace de la terminal.
-2. Vuelve a la terminal cuando hayas autorizado. Se abre tu primera playlist.
-3. Haz clic en una canción, o selecciónala y pulsa Enter. La cola sigue con las siguientes.
+1. La primera vez se abre una ventana con el inicio de sesión de TIDAL. Inicia sesión y la ventana
+   se cierra sola. Solo hace falta una vez; luego la sesión se recupera sola.
+2. Si la ventana no puede abrirse (falta WebView2), se usa tu navegador: al terminar, TIDAL muestra una
+   página "Oops"; copia su dirección (Ctrl+L, Ctrl+C) y Noneto CLI la detecta sola.
+3. Se abre tu primera playlist.
+4. Haz clic en una canción, o selecciónala y pulsa Enter. La cola sigue con las siguientes.
 
 **Barra superior:** **Biblioteca ▾** abre tus playlists propias y favoritas, permite crear una
-y actualizar la lista. Al lado está el buscador (canciones o artistas) y la insignia `◆` con la
-calidad solicitada.
+y actualizar la lista. Al lado está el buscador (canciones o artistas) y la insignia de calidad.
+Mientras suena algo muestra lo que de verdad llega, medido en el audio decodificado (por ejemplo
+`◆ FLAC 24/96`); sin reproducir solo muestra lo pedido (`Pedido: Hi-Res`). Si TIDAL entrega menos de
+lo que esa pista ofrece, la insignia cambia a `◇ … ↓` en otro color. Al pasar el mouse se ven lo
+pedido, lo recibido y las calidades en que existe la pista.
 
 **Pestañas:** **Canciones** muestra la lista (título y, debajo, artista · álbum; `▷` marca la que
 suena). **Cola · N** muestra las próximas canciones. **Letras** muestra carátula y letras,
@@ -67,6 +73,12 @@ progreso donde un clic salta a ese punto. La cola no se guarda entre sesiones.
 
 Usa una terminal compatible con mouse; el diseño funciona desde 80 × 24 y luce mejor desde 100 × 28.
 
+**Temas:** Ctrl+T cambia entre nueve paletas (noneto-dark, catppuccin-mocha, dracula, tokyo-night,
+nord, rose-pine, flexoki, catppuccin-latte y rose-pine-dawn). El visualizador usa los colores de cada
+una y Noneto CLI recuerda la última elegida.
+
+**Idioma:** español o inglés según el idioma de Windows; `--lang es` o `--lang en` lo fija.
+
 | Tecla | Acción |
 | --- | --- |
 | Ctrl+L | Abrir Biblioteca |
@@ -75,12 +87,15 @@ Usa una terminal compatible con mouse; el diseño funciona desde 80 × 24 y luce
 | Enter en la tabla | Reproducir desde la selección |
 | Espacio fuera de un campo de texto | Reproducir / pausar |
 | Ctrl+Derecha | Siguiente canción |
+| Ctrl+T | Cambiar de tema |
 | Ctrl+Q | Salir y detener el audio |
 
 ```powershell
 noneto --playlist "https://tidal.com/browse/playlist/UUID-DE-TU-PLAYLIST"
-noneto --quality HIGH              # menos datos; por defecto LOSSLESS
-noneto --quality HI_RES_LOSSLESS   # depende de la canción y de lo que entregue TIDAL
+noneto                             # pide la mejor calidad: Hi-Res FLAC hasta 24-bit / 192 kHz
+noneto --quality LOSSLESS          # tope en 16-bit / 44.1 kHz
+noneto --quality HIGH              # menos datos (AAC 320 kbps)
+noneto --lang en                   # interfaz en inglés
 noneto --logout                    # borra la sesión local
 ```
 

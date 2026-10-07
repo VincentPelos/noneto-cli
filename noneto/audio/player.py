@@ -11,6 +11,7 @@ import time
 import uuid
 
 from ..errors import AppError
+from ..i18n import _
 from ..diagnostics import emit, failure, mpv_message
 from .lifetime import PlayerJob
 from .mpv_install import mpv_dir
@@ -22,7 +23,7 @@ COMMAND_TIMEOUT = 5
 def find_mpv():
     local = mpv_dir() / "mpv.exe"
     if not local.is_file():
-        raise AppError("Falta mpv. Instalalo con: noneto --install-mpv")
+        raise AppError(_("Falta mpv. Instalalo con: noneto --install-mpv"))
     return str(local)
 
 
@@ -57,14 +58,14 @@ class Player:
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 if self.process.poll() is not None:
-                    raise AppError("mpv no pudo iniciarse.")
+                    raise AppError(_("mpv no pudo iniciarse."))
                 try:
                     self.pipe = open(pipe_name, "r+b", buffering=0)
                     break
                 except OSError:
                     time.sleep(0.05)
             if self.pipe is None:
-                raise AppError("mpv no respondio en 10 segundos.")
+                raise AppError(_("mpv no respondio en 10 segundos."))
             self._configure_pipe()
             self.thread = threading.Thread(target=self._listen, daemon=True, name="mpv-ipc")
             self.thread.start()
@@ -82,14 +83,14 @@ class Player:
         get_pid.restype = wintypes.BOOL
         pid = wintypes.ULONG()
         if not get_pid(self._handle, ctypes.byref(pid)) or pid.value != self.process.pid:
-            raise AppError("No se pudo verificar el canal del reproductor.")
+            raise AppError(_("No se pudo verificar el canal del reproductor."))
         set_state = kernel.SetNamedPipeHandleState
         set_state.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD),
                               ctypes.c_void_p, ctypes.c_void_p]
         set_state.restype = wintypes.BOOL
         mode = wintypes.DWORD(1)  # PIPE_NOWAIT: a hung peer must not block writes forever.
         if not set_state(self._handle, ctypes.byref(mode), None, None):
-            raise AppError("No se pudo configurar el canal del reproductor.")
+            raise AppError(_("No se pudo configurar el canal del reproductor."))
 
     def _receive(self, message):
         if not isinstance(message, dict):
@@ -138,7 +139,7 @@ class Player:
             if not self._closing.is_set():
                 self.failed.set()
             with self._lock:
-                for ready, _ in self._pending.values():
+                for ready, _response in self._pending.values():
                     ready.set()
 
     def command(self, *args, timeout=COMMAND_TIMEOUT, allow_unavailable=False):
@@ -147,7 +148,7 @@ class Player:
 
     def _command(self, *args, timeout, allow_unavailable=False):
         if self.failed.is_set() or self._closing.is_set():
-            raise AppError("Se perdio la comunicacion con el reproductor.")
+            raise AppError(_("Se perdio la comunicacion con el reproductor."))
         ready, response = threading.Event(), {}
         with self._lock:
             self._sequence += 1
@@ -157,11 +158,11 @@ class Player:
         try:
             message = (json.dumps({"command": list(args), "request_id": request_id}) + "\n").encode()
             if len(message) > 65536:
-                raise AppError("Comando de reproduccion demasiado grande.")
+                raise AppError(_("Comando de reproduccion demasiado grande."))
             offset = 0
             while offset < len(message):
                 if time.monotonic() >= deadline:
-                    raise AppError("mpv no respondio al comando a tiempo.")
+                    raise AppError(_("mpv no respondio al comando a tiempo."))
                 try:
                     count = self.pipe.write(message[offset:])
                 except OSError as error:
@@ -174,17 +175,17 @@ class Player:
                     time.sleep(0.01)
             if not ready.wait(max(0, deadline - time.monotonic())):
                 emit("ipc.timeout", request_id=request_id)
-                raise AppError("mpv no respondio al comando a tiempo.")
+                raise AppError(_("mpv no respondio al comando a tiempo."))
             if (allow_unavailable and args and args[0] == "get_property"
                     and response.get("error") == "property unavailable"):
                 return None
             if response.get("error") != "success":
                 emit("ipc.rejected", request_id=request_id)
-                raise AppError("mpv rechazo un comando o se desconecto.")
+                raise AppError(_("mpv rechazo un comando o se desconecto."))
             return response.get("data")
         except OSError:
             self.failed.set()
-            raise AppError("Se perdio la comunicacion con el reproductor.") from None
+            raise AppError(_("Se perdio la comunicacion con el reproductor.")) from None
         finally:
             with self._lock:
                 self._pending.pop(request_id, None)
@@ -198,7 +199,12 @@ class Player:
             except queue.Empty:
                 break
         self.command("set_property", "pause", False)
-        self.command("loadfile", str(target), "replace")
+        if str(target).endswith(".mpd"):
+            # A DASH manifest is made of segment URLs. Only manifests written by stream_target reach here,
+            # after validate_dash checked every reference; the per-file option reverts when the file ends.
+            self.command("loadfile", str(target), "replace", -1, "access-references=yes")
+        else:
+            self.command("loadfile", str(target), "replace")
 
     def close(self):
         self._closing.set()
@@ -221,5 +227,5 @@ class Player:
     def __enter__(self):
         return self
 
-    def __exit__(self, *_):
+    def __exit__(self, *exc_info):
         self.close()

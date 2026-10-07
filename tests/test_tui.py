@@ -6,6 +6,7 @@ from unittest.mock import Mock
 from textual.widgets import DataTable, Input, ProgressBar, Static
 
 from noneto.audio.controller import PlaybackState
+from noneto.ui.themes import THEMES
 from noneto.ui.tui import NonetoApp, CreatePlaylist, ChoosePlaylist, LibraryScreen, lyric_lines, cover_text
 
 
@@ -61,6 +62,22 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.screen.styles.background.hex, "#181825")
             self.assertEqual(app.query_one("#player").styles.background.hex, "#45475A")
 
+    async def test_ctrl_t_cycles_the_offered_themes_and_reports_the_choice(self):
+        chosen = []
+        player = Mock(snapshot=Mock(return_value=PlaybackState()))
+        app = NonetoApp(FakeLibrary(), player, theme="rose-pine-dawn", on_theme=chosen.append)
+        async with app.run_test(size=(100, 32)) as pilot:
+            await pilot.pause()
+            self.assertEqual(app.theme, "rose-pine-dawn")
+            await pilot.press("ctrl+t")
+            await pilot.pause()
+            self.assertEqual(app.theme, THEMES[0])  # wraps around to noneto-dark
+            await pilot.press("ctrl+t")
+            await pilot.pause()
+            self.assertEqual(chosen, [THEMES[0], THEMES[1]])
+            self.assertIn(THEMES[1], str(app.query_one("#message", Static).content))
+        self.assertEqual(NonetoApp(FakeLibrary(), player, theme="no-existe").theme, "noneto-dark")
+
     async def test_mouse_search_play_create_and_add_only_to_owned_playlist(self):
         app = self.make_app()
         async with app.run_test(size=(120, 38)) as pilot:
@@ -105,7 +122,25 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
                         quality="HI_RES_LOSSLESS")
         async with app.run_test(size=(100, 32)) as pilot:
             await pilot.pause()
-            self.assertEqual(str(app.query_one("#quality", Static).content), "◆ HI-RES 24/192")
+            badge = app.query_one("#quality", Static)
+            # Before anything plays only the request is shown, never as a promise of what arrives.
+            self.assertEqual(str(badge.content), "Pedido: Hi-Res")
+            hires, cd_only = track("Hi-Res", 7), track("CD", 8)
+            hires.media_metadata_tags, cd_only.media_metadata_tags = ["LOSSLESS", "HIRES_LOSSLESS"], ["LOSSLESS"]
+            hi = ("FLAC 24/96", "FLAC 24-bit / 96 kHz", "HI_RES_LOSSLESS")
+            cd = ("FLAC 16/44.1", "FLAC 16-bit / 44.1 kHz", "LOSSLESS")
+            for tracks, audio, text, degraded in [((hires,), (), "◆ …", False),
+                                                  ((hires,), hi, "◆ FLAC 24/96", False),
+                                                  ((cd_only,), cd, "◆ FLAC 16/44.1", False),
+                                                  ((hires,), cd, "◇ FLAC 16/44.1 ↓", True)]:
+                app.playback.snapshot.return_value = PlaybackState(tracks=tracks, index=0, audio=audio)
+                await pilot.pause(0.3)
+                self.assertEqual(str(badge.content), text)
+                self.assertEqual(badge.has_class("degraded"), degraded)
+            self.assertIn("Recibido: FLAC 16-bit / 44.1 kHz", badge.tooltip)
+            self.assertIn("Esta pista existe en: Hi-Res", badge.tooltip)
+            self.assertIn("menos de lo que ofrece", badge.tooltip)
+            app.playback.snapshot.return_value = PlaybackState()
             self.assertEqual(app.query_one("#library").label.plain, "Favoritas ▾")
             await pilot.click("#library")
             await pilot.pause()
@@ -150,7 +185,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.query_one("#search", Input).value, "hola world")
             self.player.send.assert_not_called()
             self.assertGreater(app.query_one("#tracks").size.height, 5)
-            self.assertEqual(app.query_one("#player").outer_size.height, 4)
+            self.assertEqual(app.query_one("#player").outer_size.height, 5)
             self.assertFalse(app.query_one("#track-add").disabled)
             self.assertTrue(await pilot.click("#track-enqueue"))
             self.player.send.assert_called_with("enqueue", app.tracks[0])
@@ -175,8 +210,8 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             app.update_player()
             await pilot.pause()
-            self.assertEqual(app.query_one("#top").outer_size.height, 3)
-            self.assertEqual(app.query_one("#library").region.y, 1)
+            self.assertEqual(app.query_one("#top").outer_size.height, 5)
+            self.assertEqual(app.query_one("#library").region.y, 2)
             self.assertEqual(app.query_one("#search").outer_size.height, 3)
             table = app.query_one(DataTable)
             self.assertEqual(table.ordered_rows[0].height, 2)

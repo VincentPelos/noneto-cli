@@ -1,5 +1,6 @@
 from pathlib import Path
 import ast
+import queue
 import unittest
 from unittest.mock import Mock, patch
 
@@ -51,6 +52,17 @@ class StabilityTests(unittest.TestCase):
                 self.assertFalse(player.command("get_property", "options/" + name))
             self.assertTrue(player.command("get_property", "options/tls-verify"))
             self.assertEqual(player.command("get_property", "options/network-timeout"), 30)
+
+    def test_only_validated_dash_manifests_may_follow_references(self):
+        # TIDAL PKCE streams are DASH: segment URLs are references, checked by validate_dash beforehand.
+        player = Player.__new__(Player)
+        player.events = Mock(get_nowait=Mock(side_effect=queue.Empty))
+        player.command = Mock()
+        player.play(r"C:\Temp\noneto-x\tmp1.mpd")
+        player.command.assert_called_with("loadfile", r"C:\Temp\noneto-x\tmp1.mpd", "replace", -1,
+                                          "access-references=yes")
+        player.play("https://example.com/audio.flac")
+        player.command.assert_called_with("loadfile", "https://example.com/audio.flac", "replace")
 
     def test_unanswered_command_times_out_and_removes_pending_request(self):
         with Player(extra_args=["--ao=null"]) as player:

@@ -1,6 +1,6 @@
 [project]
 name = "noneto-cli"
-version = "0.1.0"
+version = "1.0.0"
 description = "Cliente de terminal no oficial para TIDAL."
 readme = "README.md"
 license = "MIT"
@@ -16,6 +16,7 @@ dependencies = [
     "textual==8.2.8",
     "Pillow==12.3.0",
     "numpy==2.5.3",
+    "pywebview==6.2.1",
 ]
 
 [project.urls]

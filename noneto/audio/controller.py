@@ -7,6 +7,7 @@ import time
 
 from ..diagnostics import emit, failure, track_id
 from ..errors import AppError, error_label
+from ..i18n import _
 from .player import Player
 from .tap import ProcessTap
 
@@ -23,6 +24,29 @@ class PlaybackState:
     shuffle: bool = False
     repeat: str = "off"
     error: str = ""
+    audio: tuple = ()  # (short, detail, tier) of what mpv decodes, empty until loaded
+
+
+LOSSY_CODECS = {"aac", "mp3", "opus", "vorbis", "ac3", "eac3"}
+
+
+def describe_audio(codec, params):
+    """Label the decoded stream and rank it as a TIDAL tier (None when it maps to none).
+
+    TIDAL FLAC is 16-bit (decoded as s16) or 24-bit (decoded as s32).
+    """
+    rate = params.get("samplerate") if isinstance(params, dict) else None
+    if not isinstance(codec, str) or not isinstance(rate, int) or rate <= 0:
+        return ()
+    khz = f"{rate / 1000:g}"
+    if codec == "flac":
+        bits = {"s16": 16, "s16p": 16, "s32": 24, "s32p": 24}.get(params.get("format"))
+        if bits:
+            tier = "HI_RES_LOSSLESS" if bits > 16 or rate > 48000 else "LOSSLESS"
+            return (f"FLAC {bits}/{khz}", f"FLAC {bits}-bit / {khz} kHz", tier)
+        return (f"FLAC {khz}", f"FLAC / {khz} kHz", "LOSSLESS")
+    name = codec.upper()
+    return (f"{name} {khz}", f"{name} / {khz} kHz", "HIGH" if codec in LOSSY_CODECS else None)
 
 
 class PlaybackController:
@@ -52,7 +76,7 @@ class PlaybackController:
         try:
             self._commands.put_nowait((action, value))
         except queue.Full:
-            raise AppError("Demasiadas acciones pendientes. Espera un momento.") from None
+            raise AppError(_("Demasiadas acciones pendientes. Espera un momento.")) from None
 
     def close(self):
         self._closing.set()
@@ -109,12 +133,21 @@ class PlaybackController:
             state = self.snapshot()
             if 0 <= index < len(state.tracks):
                 self._set(index=index, status="Cargando", position=0, duration=0,
-                          paused=False, error="")
+                          paused=False, error="", audio=())
                 emit("track.selected", track_id=track_id(state.tracks[index]), index=index,
                      count=len(state.tracks))
                 future = self.resolve(state.tracks[index])
             else:
-                self._set(index=-1, status="Detenido", position=0, duration=0, paused=False)
+                self._set(index=-1, status="Detenido", position=0, duration=0, paused=False, audio=())
+
+        def read_audio():
+            # audio-params exists only once the decoder starts, usually after file-loaded: retried on each poll.
+            audio = describe_audio(player.command("get_property", "audio-codec-name", allow_unavailable=True),
+                                   player.command("get_property", "audio-params", allow_unavailable=True))
+            if audio:
+                state = self.snapshot()
+                self._set(audio=audio)
+                emit("playback.audio", track_id=track_id(state.tracks[state.index]), quality=audio[1])
 
         def advance(ended=False):
             state = self.snapshot()
@@ -202,7 +235,7 @@ class PlaybackController:
                     self._tap_player(player, visualizer)
                     if player:
                         if player.failed.is_set() or player.process.poll() is not None:
-                            raise AppError("Se perdio la comunicacion con mpv. Reintenta reproducir.")
+                            raise AppError(_("Se perdio la comunicacion con mpv. Reintenta reproducir."))
                         while True:
                             try:
                                 event = player.events.get_nowait()
@@ -215,18 +248,21 @@ class PlaybackController:
                                 loading = None
                                 self._set(status="Reproduciendo")
                                 emit("playback.loaded", track_id=track_id(self.snapshot().tracks[self.snapshot().index]))
+                                read_audio()
                             elif kind == "end-file" and started and event.get("reason") == "eof":
                                 advance(ended=True)
                                 break
                             elif kind == "end-file" and started and event.get("reason") == "error":
-                                raise AppError("No se pudo cargar el audio. Reintenta o elige otra cancion.")
+                                raise AppError(_("No se pudo cargar el audio. Reintenta o elige otra cancion."))
                         if loading is not None and time.monotonic() - loading > 45:
-                            raise AppError("El audio no cargo en 45 segundos. Reintenta.")
+                            raise AppError(_("El audio no cargo en 45 segundos. Reintenta."))
                         if (self.snapshot().status in ("Reproduciendo", "Pausado")
                                 and time.monotonic() - last_poll > 0.5):
                             last_poll = time.monotonic()
                             self._set(position=player.command("get_property", "time-pos", allow_unavailable=True) or 0,
                                       duration=player.command("get_property", "duration", allow_unavailable=True) or 0)
+                            if not self.snapshot().audio:
+                                read_audio()
                 except Exception as error:
                     failure("playback.failed", error)
                     if future is not None:

@@ -9,6 +9,7 @@ import tempfile
 import requests
 
 from ..errors import AppError
+from ..i18n import _
 
 # shinchiro/mpv-winbuild-cmake release 20260927 (mpv a1bf4b6559). Change both together.
 MPV_URL = ("https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260927/"
@@ -28,7 +29,7 @@ def install_mpv():
         return executable
     tar = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "tar.exe"
     if not tar.is_file():
-        raise AppError("Falta tar.exe de Windows para extraer mpv.")
+        raise AppError(_("Falta tar.exe de Windows para extraer mpv."))
     with tempfile.TemporaryDirectory(prefix="noneto-mpv-") as work:
         archive = Path(work) / "mpv.7z"
         digest, size = hashlib.sha256(), 0
@@ -37,16 +38,16 @@ def install_mpv():
             # GitHub redirects release assets to its CDN; the hash below is what authenticates the file.
             with http.get(MPV_URL, stream=True, timeout=(10, 60), verify=True) as response:
                 if response.status_code != 200:
-                    raise AppError(f"No se pudo descargar mpv (HTTP {response.status_code}).")
+                    raise AppError(_("No se pudo descargar mpv (HTTP {status}).", status=response.status_code))
                 with archive.open("wb") as output:
                     for chunk in response.iter_content(65536):
                         size += len(chunk)
                         if size > MAX_ARCHIVE_BYTES:
-                            raise AppError("La descarga de mpv es demasiado grande.")
+                            raise AppError(_("La descarga de mpv es demasiado grande."))
                         digest.update(chunk)
                         output.write(chunk)
         if digest.hexdigest() != MPV_SHA256:
-            raise AppError("El hash SHA-256 de mpv no coincide; no se instalo.")
+            raise AppError(_("El hash SHA-256 de mpv no coincide; no se instalo."))
         staging = Path(work) / "mpv"
         staging.mkdir()
         # bsdtar refuses absolute paths and ".." entries by default.
@@ -54,7 +55,7 @@ def install_mpv():
                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
         if result.returncode != 0 or not (staging / "mpv.exe").is_file():
-            raise AppError("El archivo descargado no contiene mpv.exe.")
+            raise AppError(_("El archivo descargado no contiene mpv.exe."))
         target = mpv_dir()
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():

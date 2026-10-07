@@ -16,21 +16,24 @@ from textual.screen import ModalScreen
 from textual.widgets import (Button, DataTable, Footer, Input, Label, ListItem, ListView, ProgressBar,
                              Static, TabbedContent, TabPane)
 
-from ..diagnostics import failure
+from ..diagnostics import emit, failure
 from ..errors import AppError, error_label
+from ..i18n import _
 from ..security import terminal_text
-from .themes import TIDAL_DARK
+from .themes import THEMES, TIDAL_DARK
 from .visualizer import Visualizer
 
 
-# Requested tier, not the stream Tidal finally delivers for each track.
+# Requested tier: a ceiling, not a promise. The badge shows what mpv decodes once a track loads.
 QUALITY_LABELS = {
-    "LOW": ("96k", "AAC 96 kbps"),
-    "HIGH": ("320k", "AAC 320 kbps"),
-    "LOSSLESS": ("LOSSLESS 16/44.1", "FLAC 16-bit / 44.1 kHz"),
-    "HI_RES_LOSSLESS": ("HI-RES 24/192", "FLAC hasta 24-bit / 192 kHz"),
+    "LOW": ("AAC 96k", "AAC 96 kbps"),
+    "HIGH": ("AAC 320k", "AAC 320 kbps"),
+    "LOSSLESS": ("Lossless", "FLAC 16-bit / 44.1 kHz"),
+    "HI_RES_LOSSLESS": ("Hi-Res", _("FLAC hasta 24-bit / 192 kHz")),
 }
-REPEAT_LABELS = {"off": "no", "all": "cola", "one": "una"}
+TIER_RANK = {"LOW": 0, "HIGH": 1, "LOSSLESS": 2, "HI_RES_LOSSLESS": 3}
+TIER_NAMES = {"HIGH": "AAC", "LOSSLESS": _("Lossless 16-bit / 44.1 kHz"), "HI_RES_LOSSLESS": "Hi-Res"}
+REPEAT_LABELS = {"off": _("no"), "all": _("cola"), "one": _("una")}
 VOLUME_CELLS = 10
 # Noneto symbol (docs/assets/noneto-symbol-*.svg) in half blocks: 6×6 pixels over the 3-row top bar.
 # The symbol is the N of NONETO, as in the logo.
@@ -95,7 +98,7 @@ def level_bar(volume):
 
 class LibraryScreen(ModalScreen):
     """Playlist picker that replaces the old sidebar; creating and refreshing live here too."""
-    BINDINGS = [("escape", "dismiss(None)", "Cancelar")]
+    BINDINGS = [("escape", "dismiss(None)", _("Cancelar"))]
 
     def __init__(self, playlists, writing=False):
         super().__init__()
@@ -104,15 +107,15 @@ class LibraryScreen(ModalScreen):
 
     def compose(self):
         with Vertical(id="dialog"):
-            yield Label("Tu biblioteca", classes="dialog-title")
+            yield Label(_("Tu biblioteca"), classes="dialog-title")
             if self.playlists:
                 yield ListView(*(ListItem(Label(Text(clean(p.name)))) for p in self.playlists), id="playlists")
             else:
-                yield Static("Sin playlists. Crea una o actualiza.", id="empty-library", markup=False)
+                yield Static(_("Sin playlists. Crea una o actualiza."), id="empty-library", markup=False)
             with Horizontal(classes="dialog-actions"):
-                yield Button("+ Nueva playlist", id="new-playlist", variant="primary", disabled=self.writing)
-                yield Button("Actualizar", id="refresh")
-                yield Button("Cerrar", id="cancel")
+                yield Button(_("+ Nueva playlist"), id="new-playlist", variant="primary", disabled=self.writing)
+                yield Button(_("Actualizar"), id="refresh")
+                yield Button(_("Cerrar"), id="cancel")
 
     def on_mount(self):
         if self.playlists:
@@ -130,15 +133,15 @@ class LibraryScreen(ModalScreen):
 
 
 class CreatePlaylist(ModalScreen):
-    BINDINGS = [("escape", "dismiss(None)", "Cancelar")]
+    BINDINGS = [("escape", "dismiss(None)", _("Cancelar"))]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Label("Nueva playlist", classes="dialog-title")
-            yield Input(placeholder="Nombre de tu playlist", max_length=100, id="playlist-name")
+            yield Label(_("Nueva playlist"), classes="dialog-title")
+            yield Input(placeholder=_("Nombre de tu playlist"), max_length=100, id="playlist-name")
             with Horizontal(classes="dialog-actions"):
-                yield Button("Cancelar", id="cancel")
-                yield Button("Crear", id="confirm", variant="primary")
+                yield Button(_("Cancelar"), id="cancel")
+                yield Button(_("Crear"), id="confirm", variant="primary")
 
     def on_mount(self):
         self.query_one(Input).focus()
@@ -156,7 +159,7 @@ class CreatePlaylist(ModalScreen):
 
 
 class ChoosePlaylist(ModalScreen):
-    BINDINGS = [("escape", "dismiss(None)", "Cancelar")]
+    BINDINGS = [("escape", "dismiss(None)", _("Cancelar"))]
 
     def __init__(self, playlists):
         super().__init__()
@@ -164,9 +167,9 @@ class ChoosePlaylist(ModalScreen):
 
     def compose(self):
         with Vertical(id="dialog"):
-            yield Label("Agregar a una playlist propia", classes="dialog-title")
+            yield Label(_("Agregar a una playlist propia"), classes="dialog-title")
             yield ListView(*(ListItem(Label(Text(clean(p.name)))) for p in self.playlists), id="destinations")
-            yield Button("Cancelar", id="cancel")
+            yield Button(_("Cancelar"), id="cancel")
 
     def on_mount(self):
         self.query_one(ListView).focus()
@@ -191,7 +194,7 @@ class TrackTable(DataTable):
                 and isinstance(column, int) and column >= 0):
             coordinate = Coordinate(row, column)
             self.cursor_coordinate = coordinate
-            row_key, _ = self.coordinate_to_cell_key(coordinate)
+            row_key, _column = self.coordinate_to_cell_key(coordinate)
             self.post_message(DataTable.RowSelected(self, row, row_key))
             event.stop()
             return
@@ -230,6 +233,17 @@ class VolumeBar(Static):
             event.stop()
 
 
+
+def offered_tier(track):
+    """Best tier TIDAL lists for a track, or None when it does not say."""
+    tags = getattr(track, "media_metadata_tags", None) or ()
+    if "HIRES_LOSSLESS" in tags:
+        return "HI_RES_LOSSLESS"
+    if "LOSSLESS" in tags:
+        return "LOSSLESS"
+    quality = getattr(track, "audio_quality", None)
+    return quality if quality in TIER_NAMES else None
+
 class Views(TabbedContent):
     """Tabs that report their size after layout, unlike App resize events."""
 
@@ -247,16 +261,18 @@ class NonetoApp(App):
     Screen { background: $background; color: $foreground; }
     Button { min-width: 3; height: 1; border: none; margin-right: 1; }
     Button.-primary { background: $primary; color: $button-color-foreground; }
-    #top { height: 3; background: $panel; }
+    #top { height: 5; background: $panel; padding: 1 0; }
     #top > #quality { margin-top: 1; }
     #top > Button { margin: 1 1 0 0; }
-    #brand { width: auto; height: 3; padding: 0 1; text-style: bold; }
+    #brand { width: auto; height: 3; padding: 0 1 0 2; text-style: bold; }
     #library { max-width: 32; background: $surface; }
     #search { width: 1fr; height: 3; border: round $border; padding: 0 1; margin-right: 1; background: $panel; }
     #search:focus { border: round $primary; background: $panel; }
     #search-button { min-width: 8; }
     #quality { width: auto; padding: 0 1; text-style: bold; color: $primary; }
+    #quality.degraded { color: $warning; }
     #views-wrap, #views { height: 1fr; }
+    #views-wrap { margin-top: 1; }
     #hint { position: absolute; height: 1; padding: 0 1; color: $text-muted;
             text-wrap: nowrap; text-overflow: ellipsis; }
     #views ContentSwitcher { height: 1fr; }
@@ -269,14 +285,13 @@ class NonetoApp(App):
     #lyrics-pane { height: 1fr; }
     #cover { width: 14; height: 6; margin: 1 1 0 1; }
     #lyrics-body { width: 1fr; padding: 0 1; }
-    #lyrics-title { height: 1; color: $text-muted; text-style: bold; }
     #lyrics-scroll { height: 1fr; scrollbar-size: 1 1; }
     #lyrics-text { height: auto; }
     #visualizer { height: 6; padding: 0 1; color: $foreground; }
     #song-actions { height: 1; background: $surface; padding: 0 1; }
     #action-target { width: 1fr; height: 1; color: $text-muted; }
     #song-actions Button { background: $panel; }
-    #player { height: 4; background: $panel; padding: 1 1 0 1; }
+    #player { height: 5; background: $panel; padding: 1 1; }
     #mini-cover { width: 6; height: 3; margin-right: 2; }
     #player-body { width: 1fr; }
     #now-row, #now-detail, #seek { height: 1; }
@@ -308,15 +323,18 @@ class NonetoApp(App):
     #playlists, #destinations { height: auto; max-height: 18; margin-bottom: 1; }
     #dialog ListItem { padding: 0 1; }
     """
-    BINDINGS = [Binding("ctrl+q", "quit", "Salir"), Binding("ctrl+f", "search", "Buscar"),
-                Binding("ctrl+l", "library", "Biblioteca"),
-                Binding("ctrl+n", "new_playlist", "Nueva playlist"),
-                Binding("space", "pause", "Pausa"), Binding("ctrl+right", "next", "Siguiente")]
+    BINDINGS = [Binding("ctrl+q", "quit", _("Salir")), Binding("ctrl+f", "search", _("Buscar")),
+                Binding("ctrl+l", "library", _("Biblioteca")),
+                Binding("ctrl+n", "new_playlist", _("Nueva playlist")),
+                Binding("space", "pause", _("Pausa")), Binding("ctrl+right", "next", _("Siguiente")),
+                Binding("ctrl+t", "next_theme", _("Tema"))]
 
-    def __init__(self, library, playback, quality="LOSSLESS", initial_playlist=None, user_name="Usuario"):
+    def __init__(self, library, playback, quality="HI_RES_LOSSLESS", initial_playlist=None, user_name=None,
+                 theme=None, on_theme=None):
         super().__init__()
         self.register_theme(TIDAL_DARK)
-        self.theme = TIDAL_DARK.name
+        self.theme = theme if theme in THEMES else TIDAL_DARK.name
+        self.on_theme = on_theme  # persists the choice; the UI itself never writes files
         self.library, self.playback = library, playback
         self.quality, self.initial_playlist = quality, initial_playlist
         self.user_name = user_name
@@ -341,49 +359,45 @@ class NonetoApp(App):
         self._hint_text = ""
 
     def compose(self):
-        short, detail = QUALITY_LABELS.get(self.quality, (clean(self.quality), clean(self.quality)))
         with Horizontal(id="top"):
             yield Static(BRAND, id="brand", markup=False)
-            library = Button("Biblioteca ▾", id="library")
-            library.tooltip = f"Playlists de {clean(self.user_name)} · Ctrl+L"
+            library = Button(_("Biblioteca ▾"), id="library")
+            library.tooltip = _("Playlists de {name} · Ctrl+L", name=clean(self.user_name or _("Usuario")))
             yield library
-            yield Input(placeholder="Buscar canciones o artistas…", max_length=200, id="search")
-            yield Button("Buscar", id="search-button", variant="primary")
-            badge = Static(f"◆ {short}", id="quality", markup=False)
-            badge.tooltip = f"Calidad solicitada: {detail}. Tidal puede entregar menos en algunas pistas."
-            yield badge
+            yield Input(placeholder=_("Buscar canciones o artistas…"), max_length=200, id="search")
+            yield Button(_("Buscar"), id="search-button", variant="primary")
+            yield Static("◆", id="quality", markup=False)
         with Vertical(id="views-wrap"):
             with Views(id="views", initial="songs-view"):
-                with TabPane("Canciones", id="songs-view"):
+                with TabPane(_("Canciones"), id="songs-view"):
                     yield TrackTable(id="tracks", cursor_type="row", zebra_stripes=True)
-                    yield Button("Más resultados", id="more")
-                with TabPane("Cola", id="queue-view"):
+                    yield Button(_("Más resultados"), id="more")
+                with TabPane(_("Cola"), id="queue-view"):
                     with VerticalScroll(id="rail"):
-                        yield Static("Sin canciones en cola.", id="up-next", markup=False)
-                with TabPane("Letras", id="lyrics-view"):
+                        yield Static(_("Sin canciones en cola."), id="up-next", markup=False)
+                with TabPane(_("Letras"), id="lyrics-view"):
                     with Horizontal(id="lyrics-pane"):
                         yield Static(cover_text(None), id="cover")
                         with Vertical(id="lyrics-body"):
-                            yield Static("Letras", id="lyrics-title", markup=False)
                             with VerticalScroll(id="lyrics-scroll"):
-                                yield Static("Reproduce una canción para ver sus letras.", id="lyrics-text", markup=False)
+                                yield Static(_("Reproduce una canción para ver sus letras."), id="lyrics-text", markup=False)
                     yield Visualizer(lambda count: self.playback.bands(count), id="visualizer")
             # Overlaid on the free end of the tab row; _place_hint keeps it clear of the tabs.
             yield Static("", id="hint", markup=False)
         with Horizontal(id="song-actions"):
-            yield Static("Selecciona una canción", id="action-target", markup=False)
-            yield Button("+ Cola", id="track-enqueue")
+            yield Static(_("Selecciona una canción"), id="action-target", markup=False)
+            yield Button(_("+ Cola"), id="track-enqueue")
             yield Button("+ Playlist", id="track-add")
         with Horizontal(id="player"):
             yield Static(cover_text(None, 6), id="mini-cover")
             with Vertical(id="player-body"):
                 with Horizontal(id="now-row"):
-                    yield Static("Sin canción", id="now-playing", markup=False)
+                    yield Static(_("Sin canción"), id="now-playing", markup=False)
                     with Horizontal(id="controls"):
                         for identifier, label, tooltip in (
-                                ("shuffle", "⇄", "Aleatorio"), ("previous", "◁◁", "Anterior"),
-                                ("pause", "▷", "Reproducir o pausar"), ("next", "▷▷", "Siguiente"),
-                                ("repeat", "↻", "Repetir: apagado / cola / canción")):
+                                ("shuffle", "⇄", _("Aleatorio")), ("previous", "◁◁", _("Anterior")),
+                                ("pause", "▷", _("Reproducir o pausar")), ("next", "▷▷", _("Siguiente")),
+                                ("repeat", "↻", _("Repetir: apagado / cola / canción"))):
                             button = Button(label, id=identifier,
                                             variant="primary" if identifier == "pause" else "default")
                             button.tooltip = tooltip
@@ -399,7 +413,7 @@ class NonetoApp(App):
                     yield SeekProgress(total=1, show_percentage=False, show_eta=False, id="progress")
                     yield Static("0:00", id="total", markup=False)
         with Horizontal(id="statusbar"):
-            yield Static("Cargando biblioteca…", id="message", markup=False)
+            yield Static(_("Cargando biblioteca…"), id="message", markup=False)
             yield Static("", id="mode", markup=False)
         yield Footer()
 
@@ -410,7 +424,7 @@ class NonetoApp(App):
         if self._exception is None:
             self._exception = error
             self._exception_event.set()
-        self.exit(return_code=1, message="La interfaz se cerro por un error. Consulta los logs de Noneto CLI.")
+        self.exit(return_code=1, message=_("La interfaz se cerro por un error. Consulta los logs de Noneto CLI."))
 
     async def on_mount(self):
         self._now_playing = self.query_one("#now-playing", Static)
@@ -419,7 +433,6 @@ class NonetoApp(App):
         self._hint = self.query_one("#hint", Static)
         self._cover = self.query_one("#cover", Static)
         self._lyrics_text = self.query_one("#lyrics-text", Static)
-        self._lyrics_title = self.query_one("#lyrics-title", Static)
         self._progress = self.query_one("#progress", ProgressBar)
         self._volume_bar = self.query_one("#volume-bar", Static)
         self._volume_label = self.query_one("#volume-label", Static)
@@ -427,6 +440,8 @@ class NonetoApp(App):
         self._elapsed = self.query_one("#elapsed", Static)
         self._total = self.query_one("#total", Static)
         self._mode = self.query_one("#mode", Static)
+        self._quality = self.query_one("#quality", Static)
+        self._show_quality((), None)
         self._pause_button = self.query_one("#pause", Button)
         self._shuffle_button = self.query_one("#shuffle", Button)
         self._repeat_button = self.query_one("#repeat", Button)
@@ -434,7 +449,7 @@ class NonetoApp(App):
         self._message_widget = self.query_one("#message", Static)
         self._views = self.query_one("#views", TabbedContent)
         table = self.query_one(TrackTable)
-        self._mark_column, *_ = table.add_columns("#", "Título", "Duración")
+        self._mark_column, *_rest = table.add_columns("#", _("Título"), _("Duración"))
         self._update_action_target()
         self.query_one("#more", Button).display = False
         self.set_interval(0.25, self.update_player)
@@ -485,7 +500,7 @@ class NonetoApp(App):
 
     def report(self, error):
         failure("ui.failed", error)
-        self.message(str(error) if isinstance(error, AppError) else f"No se pudo completar: {error_label(error)}. Puedes reintentar.")
+        self.message(str(error) if isinstance(error, AppError) else _("No se pudo completar: {label}. Puedes reintentar.", label=error_label(error)))
 
     @work
     async def refresh_library(self, initial=False, select=None):
@@ -495,7 +510,7 @@ class NonetoApp(App):
         try:
             playlists = await self.api("playlists")
             self.playlists = playlists
-            self.message(f"{len(playlists)} playlists · Clic en Biblioteca para abrir otra")
+            self.message(_("{count} playlists · Clic en Biblioteca para abrir otra", count=len(playlists)))
             if select is not None:
                 self.open_playlist(select)
             elif initial and self.initial_playlist:
@@ -526,7 +541,7 @@ class NonetoApp(App):
         self.query_one(DataTable).clear()
         self._update_action_target()
         self.query_one("#library", Button).label = Text(f"{clean(heading)[:26]} ▾")
-        self.hint("Cargando…")
+        self.hint(_("Cargando…"))
         self.query_one("#more", Button).display = False
         self._views.active = "songs-view"
         return self._generation
@@ -546,7 +561,7 @@ class NonetoApp(App):
         except Exception as error:
             if generation == self._generation:
                 self.report(error)
-                self.hint("No se pudo cargar. Ábrela otra vez para reintentar.")
+                self.hint(_("No se pudo cargar. Ábrela otra vez para reintentar."))
 
     def _mark(self, index, track):
         if self._current_track_id is not None and getattr(track, "id", None) == self._current_track_id:
@@ -571,9 +586,9 @@ class NonetoApp(App):
             title.append(f"\n{artist(track)} · {album(track)}", style="dim")
             table.add_row(self._mark(index, track), title,
                           Text(duration(getattr(track, "duration", 0)), style="dim"), height=2)
-        source = clean(self.current_playlist.name) if self.current_playlist else "Búsqueda"
-        self.hint(f"{source[:30]} · {len(self.tracks)} canciones" if self.tracks
-                  else "Sin canciones. Busca música y agrégala a una playlist.")
+        source = clean(self.current_playlist.name) if self.current_playlist else _("Búsqueda")
+        self.hint(_("{source} · {count} canciones", source=source[:30], count=len(self.tracks)) if self.tracks
+                  else _("Sin canciones. Busca música y agrégala a una playlist."))
         self._update_action_target()
 
     @on(Input.Submitted, "#search")
@@ -583,7 +598,7 @@ class NonetoApp(App):
         if query:
             self.current_playlist = None
             self.search_query = query
-            generation = self.begin_view(f"Resultados: {query}")
+            generation = self.begin_view(_("Resultados: {query}", query=query))
             self.search_page(query, generation, 0)
 
     @work
@@ -596,7 +611,7 @@ class NonetoApp(App):
         except Exception as error:
             if generation == self._generation:
                 self.report(error)
-                self.hint("Búsqueda fallida. Pulsa Buscar para reintentar.")
+                self.hint(_("Búsqueda fallida. Pulsa Buscar para reintentar."))
         finally:
             self._loading_more = False
             self.query_one("#more", Button).disabled = False
@@ -609,11 +624,11 @@ class NonetoApp(App):
         track = self.selected_track()
         target = Text()
         if track:
-            target.append("Seleccionada  ")
+            target.append(_("Seleccionada  "))
             target.append(clean(track.name), style="bold")
             target.append(f" · {artist(track)}")
         else:
-            target.append("Selecciona una canción")
+            target.append(_("Selecciona una canción"))
         self._action_target.update(target)
         self.query_one("#track-add", Button).disabled = track is None or self._writing
         self.query_one("#track-enqueue", Button).disabled = track is None
@@ -629,7 +644,7 @@ class NonetoApp(App):
         self._update_action_target()
         if self.selected_track() is not None:
             self._source_name = (clean(self.current_playlist.name) if self.current_playlist else
-                                 "Búsqueda" if self.search_query else "Cola")
+                                 _("Búsqueda") if self.search_query else _("Cola"))
             self.control("play", (tuple(self.tracks), self.query_one(DataTable).cursor_row))
 
     @on(DataTable.RowHighlighted)
@@ -661,6 +676,15 @@ class NonetoApp(App):
     def action_next(self):
         self.control("next")
 
+    def action_next_theme(self):
+        self.theme = THEMES[(THEMES.index(self.theme) + 1) % len(THEMES)] if self.theme in THEMES else THEMES[0]
+        self.message(_("Tema: {name} · Ctrl+T para cambiar", name=self.theme))
+        if self.on_theme is not None:
+            try:
+                self.on_theme(self.theme)
+            except OSError as error:
+                failure("settings.failed", error)
+
     def action_new_playlist(self):
         if not self._writing:
             self.push_screen(CreatePlaylist(), self.create_playlist)
@@ -673,11 +697,11 @@ class NonetoApp(App):
         self._update_action_target()
         try:
             playlist = await self.api("create", title)
-            self.message("Playlist creada en tu cuenta de Tidal.")
+            self.message(_("Playlist creada en tu cuenta de Tidal."))
             self.refresh_library(select=playlist)
         except Exception as error:
             self.report(error)
-            self.message("No se confirmó la creación. Actualiza la biblioteca antes de reintentar.")
+            self.message(_("No se confirmó la creación. Actualiza la biblioteca antes de reintentar."))
         finally:
             self._writing = False
             self._update_action_target()
@@ -691,12 +715,12 @@ class NonetoApp(App):
         try:
             own = [p for p in self.playlists if self.library.catalog.editable(p)]
             if not own:
-                self.message("Primero crea una playlist propia desde Biblioteca.")
+                self.message(_("Primero crea una playlist propia desde Biblioteca."))
                 return
             playlist = await self.push_screen_wait(ChoosePlaylist(own))
             if playlist is not None:
                 result = await self.api("add", playlist, track)
-                self.message("Canción agregada." if result else "Sin cambios: la canción ya existe o no está disponible.")
+                self.message(_("Canción agregada.") if result else _("Sin cambios: la canción ya existe o no está disponible."))
                 if self.current_playlist and str(self.current_playlist.id) == str(playlist.id):
                     self.open_playlist(playlist)
         except Exception as error:
@@ -728,7 +752,7 @@ class NonetoApp(App):
             track = self.selected_track()
             if track is not None:
                 self.control("enqueue", track)
-                self.message("Canción agregada al final de la cola.")
+                self.message(_("Canción agregada al final de la cola."))
         elif identifier in ("quieter", "louder"):
             self.control("volume", -5 if identifier == "quieter" else 5)
 
@@ -737,6 +761,39 @@ class NonetoApp(App):
         if self._shown.get(widget.id) != value:
             self._shown[widget.id] = value
             widget.update(value, layout=layout)
+
+    def _show_quality(self, audio, track):
+        """Badge: what mpv decodes now; before that, only what was asked for, never as a promise.
+
+        Getting less than the track offers (within what was asked) is flagged: that is a real loss,
+        unlike a track that only exists in 16-bit / 44.1 kHz.
+        """
+        key = (audio, getattr(track, "id", None))
+        if self._shown.get("quality-key") == key:
+            return
+        self._shown["quality-key"] = key
+        short, detail = QUALITY_LABELS.get(self.quality, (clean(self.quality), clean(self.quality)))
+        asked = _("Pedido: {short} ({detail}).", short=short, detail=detail)
+        best = offered_tier(track)
+        degraded = False
+        if track is None:
+            text, tip = _("Pedido: {short}", short=short), f"{asked} {_('Al reproducir se muestra la calidad que llega.')}"
+        elif not audio:
+            text, tip = "◆ …", f"{asked} {_('Esperando el audio.')}"
+        else:
+            label, received, tier = audio
+            expected = min(TIER_RANK.get(self.quality, 0), TIER_RANK[best]) if best else None
+            degraded = expected is not None and tier is not None and TIER_RANK[tier] < expected
+            text = f"◇ {label} ↓" if degraded else f"◆ {label}"
+            tip = f"{asked} {_('Recibido: {received}.', received=received)}"
+            if best:
+                tip += " " + _("Esta pista existe en: {tier}.", tier=TIER_NAMES[best])
+            if degraded:
+                tip += " " + _("TIDAL entregó menos de lo que ofrece esta pista.")
+                emit("playback.degraded", track_id=getattr(track, "id", None), quality=received)
+        self._quality.update(text, layout=True)
+        self._quality.tooltip = tip
+        self._quality.set_class(degraded, "degraded")
 
     def _label(self, button, value):
         if self._shown.get(button.id) != value:
@@ -754,8 +811,7 @@ class NonetoApp(App):
             self._refresh_marks(previous, track_id)
             self._media_generation += 1
             self._lyrics, self._active_line = [], None
-            self._lyrics_text.update("Cargando letras…" if track else "Reproduce una canción para ver sus letras.")
-            self._lyrics_title.update("Letras")
+            self._lyrics_text.update(_("Cargando letras…") if track else _("Reproduce una canción para ver sus letras."))
             self._cover.update(cover_text(None))
             self._mini_cover.update(cover_text(None, 6))
             if track:
@@ -766,7 +822,7 @@ class NonetoApp(App):
             now.append(f"{'❚❚' if state.paused else '▷'} {clean(track.name)}", style="bold")
             detail = " · ".join(part for part in (artist(track), album(track), self._source_name) if part)
         else:
-            now.append("Sin canción", style="dim")
+            now.append(_("Sin canción"), style="dim")
         self._show(self._now_playing, now)
         self._show(self._now_detail, detail)
         self._show(self._elapsed, duration(state.position))
@@ -779,7 +835,7 @@ class NonetoApp(App):
         if queue_signature != self._queue_signature:
             self._queue_signature = queue_signature
             next_tracks = state.tracks[max(0, state.index + 1):]
-            self._views.get_tab("queue-view").label = f"Cola · {len(next_tracks)}" if next_tracks else "Cola"
+            self._views.get_tab("queue-view").label = _("Cola · {count}", count=len(next_tracks)) if next_tracks else _("Cola")
             self.call_after_refresh(self._place_hint)
             if next_tracks:
                 queue_text = Text()
@@ -790,17 +846,18 @@ class NonetoApp(App):
                     queue_text.append(clean(queued.name), style="bold")
                     queue_text.append(f" · {artist(queued)}", style="dim")
                 if len(next_tracks) > 100:
-                    queue_text.append(f"\n\n+ {len(next_tracks) - 100} canciones")
+                    queue_text.append("\n\n" + _("+ {count} canciones", count=len(next_tracks) - 100))
                 self._up_next.update(queue_text)
             else:
-                self._up_next.update("Sin canciones en cola.")
+                self._up_next.update(_("Sin canciones en cola."))
         self._update_lyrics(state.position)
         self._label(self._pause_button, "▷" if state.paused or state.index < 0 else "❚❚")
         self._shuffle_button.set_class(state.shuffle, "active")
         self._repeat_button.set_class(state.repeat != "off", "active")
         self._label(self._repeat_button, "↻1" if state.repeat == "one" else "↻")
-        mode = f"{state.status} · Rep: {REPEAT_LABELS[state.repeat]}"
-        self._show(self._mode, mode + (" · Aleatorio" if state.shuffle else ""), layout=True)  # auto width
+        mode = f"{_(state.status)} · {_('Rep: {mode}', mode=REPEAT_LABELS[state.repeat])}"
+        self._show(self._mode, mode + (" · " + _("Aleatorio") if state.shuffle else ""), layout=True)  # auto width
+        self._show_quality(state.audio, track)
         if state.error and state.error != self._last_error:
             self.message(state.error)
         self._last_error = state.error
@@ -812,12 +869,11 @@ class NonetoApp(App):
             if generation == self._media_generation:
                 self._lyrics, self._timed_lyrics = lyric_lines(plain, subtitles)
                 self._active_line = None
-                self._lyrics_title.update("Letras sincronizadas" if self._timed_lyrics else "Letras")
                 self._update_lyrics(self.playback.snapshot().position)
         except Exception as error:
             if generation == self._media_generation:
                 failure("lyrics.unavailable", error)
-                self._lyrics_text.update("No hay letras disponibles para esta canción.")
+                self._lyrics_text.update(_("No hay letras disponibles para esta canción."))
         try:
             pixels = await self.api("cover", track)
             if generation == self._media_generation:
@@ -830,13 +886,13 @@ class NonetoApp(App):
     def _update_lyrics(self, position):
         if not self._lyrics:
             return
-        active = (bisect.bisect_right([when for when, _ in self._lyrics], position) - 1
+        active = (bisect.bisect_right([when for when, _line in self._lyrics], position) - 1
                   if self._timed_lyrics else -1)
         if active == self._active_line:
             return
         self._active_line = active
         output = Text()
-        for index, (_, line) in enumerate(self._lyrics):
+        for index, (_when, line) in enumerate(self._lyrics):
             output.append(line or " ", style="bold" if index == active else "dim")
             if index < len(self._lyrics) - 1:
                 output.append("\n")

@@ -1,15 +1,21 @@
-"""OAuth service; output is delivered as events, not printed here."""
-import webbrowser
+"""OAuth service; output is delivered as events, not printed here.
+
+Login uses PKCE: TIDAL only serves Hi-Res FLAC (up to 24-bit / 192 kHz) to PKCE sessions.
+Device-code sessions stored by earlier versions are replaced by a new PKCE login.
+The UI shows the login page and returns the redirect URL it reaches; it is validated here.
+"""
+from urllib.parse import urlencode
 
 import requests
 from tidalapi.exceptions import AuthenticationError
 
 from ..errors import AppError
-from ..security import https_url
+from ..i18n import _
+from ..security import https_url, pkce_code
 from .storage import read_session, save_session, session_path
 
 
-def login(session, notify):
+def login(session, notify, ask):
     if session_path().exists():
         try:
             restored = session.load_oauth_session(**read_session())
@@ -21,23 +27,23 @@ def login(session, notify):
             restored = False
         except (OSError, ValueError, TypeError, KeyError, AuthenticationError):
             restored = False
-        if restored:
+        if restored and session.is_pkce is True:
             save_session(session)
             notify("session-restored")
             return
-        notify("session-invalid")
-    link = session.get_link_login()
-    url = link.verification_uri_complete
-    if isinstance(url, str) and "://" not in url:
-        url = "https://" + url
-    https_url(url, hosts={"link.tidal.com", "login.tidal.com", "tidal.com", "www.tidal.com"})
-    notify("authorize", url=url)
+        notify("session-upgrade" if restored else "session-invalid")
+    redirect = session.config.pkce_uri_redirect
+    url = https_url(session.pkce_login_url(), hosts={"login.tidal.com"})
+    answer = ask("redirect", url=url, redirect=redirect)
+    if not answer or not answer.strip():
+        raise AppError(_("Inicio de sesion cancelado."))
+    code = pkce_code(answer, redirect)
     try:
-        webbrowser.open(url)
-    except webbrowser.Error:
-        pass
-    if not session.process_link_login(link):
-        raise AppError("No se pudo completar el inicio de sesion.")
+        # Rebuilt from the validated code: nothing else from the pasted text reaches TIDAL.
+        token = session.pkce_get_auth_token(f"{redirect}?{urlencode({'code': code})}")
+    except requests.HTTPError:
+        raise AppError(_("TIDAL rechazo el codigo; puede haber caducado. Ejecuta noneto otra vez.")) from None
+    session.process_auth_token(token, is_pkce_token=True)
     save_session(session)
     notify("session-started")
 

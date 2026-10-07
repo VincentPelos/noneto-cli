@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import wave
 from pathlib import Path
 
-from noneto.audio.controller import PlaybackController
+from noneto.audio.controller import PlaybackController, describe_audio
 from noneto.audio.player import Player
 from noneto.errors import AppError
 from noneto.services.library import Library
@@ -201,12 +201,63 @@ class ControllerTests(unittest.TestCase):
             controller = PlaybackController(resolve, lambda: Player(extra_args=["--ao=null"]))
             try:
                 controller.send("play", ([NS(id=1), NS(id=2)], 0))
+                wait_for(lambda: controller.snapshot().audio)
+                self.assertEqual(controller.snapshot().audio, ("PCM_S16LE 8", "PCM_S16LE / 8 kHz", None))
                 wait_for(lambda: controller.snapshot().index == 1)
                 wait_for(lambda: controller.snapshot().status == "Detenido")
                 self.assertFalse(controller.snapshot().error)
+                self.assertEqual(controller.snapshot().audio, ())
             finally:
                 controller.close()
             self.assertFalse(controller._thread.is_alive())
+
+
+class LateAudioPlayer(StubPlayer):
+    """Like mpv with DASH: audio-params appears only after the decoder starts, not at file-loaded."""
+
+    def __init__(self):
+        super().__init__()
+        self.reads = 0
+
+    def command(self, *args, **kwargs):
+        self.commands.append(args)
+        if args[:2] == ("get_property", "audio-params"):
+            self.reads += 1
+            return {"samplerate": 96000, "format": "s32"} if self.reads > 2 else None
+        if args[:2] == ("get_property", "audio-codec-name"):
+            return "flac"
+        return 1
+
+
+class AudioLabelTests(unittest.TestCase):
+    def test_label_appears_when_decoder_starts_after_file_loaded(self):
+        ready = Future()
+        ready.set_result("target.mpd")
+        player = LateAudioPlayer()
+        controller = PlaybackController(Mock(return_value=ready), lambda: player)
+        try:
+            controller.send("play", ([NS(id=1)], 0))
+            wait_for(lambda: controller.snapshot().status == "Reproduciendo")
+            wait_for(lambda: controller.snapshot().audio)
+            self.assertEqual(controller.snapshot().audio, ("FLAC 24/96", "FLAC 24-bit / 96 kHz", "HI_RES_LOSSLESS"))
+        finally:
+            controller.close()
+
+    def test_labels_match_what_mpv_reports_for_tidal_formats(self):
+        # Values measured with the pinned mpv on FLAC 24-bit/96 kHz, FLAC 16-bit/44.1 kHz and AAC files.
+        hi, cd = "HI_RES_LOSSLESS", "LOSSLESS"
+        cases = [("flac", {"samplerate": 96000, "format": "s32"}, ("FLAC 24/96", "FLAC 24-bit / 96 kHz", hi)),
+                 ("flac", {"samplerate": 192000, "format": "s32"}, ("FLAC 24/192", "FLAC 24-bit / 192 kHz", hi)),
+                 ("flac", {"samplerate": 44100, "format": "s16"}, ("FLAC 16/44.1", "FLAC 16-bit / 44.1 kHz", cd)),
+                 ("flac", {"samplerate": 96000, "format": "s16"}, ("FLAC 16/96", "FLAC 16-bit / 96 kHz", hi)),
+                 ("flac", {"samplerate": 48000, "format": "s32"}, ("FLAC 24/48", "FLAC 24-bit / 48 kHz", hi)),
+                 ("aac", {"samplerate": 44100, "format": "floatp"}, ("AAC 44.1", "AAC / 44.1 kHz", "HIGH")),
+                 ("flac", {"samplerate": 44100, "format": "unknown"}, ("FLAC 44.1", "FLAC / 44.1 kHz", cd)),
+                 ("pcm_s16le", {"samplerate": 8000, "format": "s16"}, ("PCM_S16LE 8", "PCM_S16LE / 8 kHz", None))]
+        for codec, params, expected in cases:
+            self.assertEqual(describe_audio(codec, params), expected)
+        for codec, params in [(None, None), ("flac", None), ("flac", {"samplerate": 0}), (1, {"samplerate": 44100})]:
+            self.assertEqual(describe_audio(codec, params), ())
 
 
 class LibraryTests(unittest.TestCase):
