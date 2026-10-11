@@ -211,6 +211,83 @@ class ControllerTests(unittest.TestCase):
                 controller.close()
             self.assertFalse(controller._thread.is_alive())
 
+    def shuffle_controller(self, tracks, index=0):
+        def resolve(track):
+            future = Future()
+            future.set_result(track.id)
+            return future
+        player = StubPlayer()
+        controller = PlaybackController(resolve, lambda: player)
+        self.addCleanup(controller.close)
+        controller._random.seed(0)
+        controller.send("shuffle")
+        controller.send("play", (tracks, index))
+        wait_for(lambda: controller.snapshot().status == "Reproduciendo")
+        return controller, player
+
+    def test_shuffle_cycles_play_every_occurrence_once(self):
+        tracks = tuple(NS(id=index) for index in range(8))
+        controller, player = self.shuffle_controller(tracks)
+        controller.send("repeat")
+        wait_for(lambda: controller.snapshot().repeat == "all")
+        for _ in range(31):
+            count = len(player.targets)
+            player.events.put({"event": "end-file", "reason": "eof"})
+            wait_for(lambda: len(player.targets) == count + 1)
+            wait_for(lambda: controller.snapshot().status == "Reproduciendo")
+        for start in range(0, 32, 8):
+            self.assertCountEqual(player.targets[start:start + 8], range(8))
+            if start:
+                self.assertNotEqual(player.targets[start - 1], player.targets[start])
+
+    def test_shuffle_repeat_boundary_compares_song_ids_not_occurrences(self):
+        tracks = (NS(id=1), NS(id=2), NS(id=1))
+        controller, player = self.shuffle_controller(tracks, index=2)
+        controller.send("repeat")
+        wait_for(lambda: controller.snapshot().repeat == "all")
+        player.events.put({"event": "end-file", "reason": "eof"})
+        wait_for(lambda: len(player.targets) == 2)
+        self.assertEqual(player.targets, [1, 2])
+        self.assertCountEqual(controller.snapshot().tracks, tracks)
+
+    def test_shuffle_disable_after_advancing_keeps_history_and_sorts_pending(self):
+        tracks = tuple(NS(id=index) for index in range(8))
+        controller, player = self.shuffle_controller(tracks)
+        controller.send("next")
+        wait_for(lambda: len(player.targets) == 2)
+        before = controller.snapshot()
+        controller.send("shuffle")
+        wait_for(lambda: not controller.snapshot().shuffle)
+        after = controller.snapshot()
+        self.assertEqual(after.index, before.index)
+        self.assertEqual(after.tracks[:2], before.tracks[:2])
+        self.assertEqual(after.tracks[2:], tuple(sorted(before.tracks[2:], key=lambda t: t.id)))
+        self.assertEqual(len(player.targets), 2)
+
+    def test_enqueue_duplicate_stays_at_end_in_shuffle(self):
+        tracks = tuple(NS(id=index) for index in range(5))
+        controller, player = self.shuffle_controller(tracks)
+        before = controller.snapshot()
+        controller.send("enqueue", tracks[0])
+        wait_for(lambda: len(controller.snapshot().tracks) == 6)
+        self.assertEqual(controller.snapshot().tracks, before.tracks + (tracks[0],))
+        controller.send("shuffle")
+        wait_for(lambda: not controller.snapshot().shuffle)
+        self.assertEqual(controller.snapshot().tracks, tracks + (tracks[0],))
+        self.assertEqual(len(player.targets), 1)
+
+    def test_single_song_shuffle_repeat_and_manual_next(self):
+        tracks = (NS(id=1),)
+        controller, player = self.shuffle_controller(tracks)
+        controller.send("repeat")
+        controller.send("repeat")
+        wait_for(lambda: controller.snapshot().repeat == "one")
+        player.events.put({"event": "end-file", "reason": "eof"})
+        wait_for(lambda: len(player.targets) == 2)
+        controller.send("next")
+        wait_for(lambda: controller.snapshot().status == "Detenido")
+        self.assertEqual(player.targets, [1, 1])
+
 
 class LateAudioPlayer(StubPlayer):
     """Like mpv with DASH: audio-params appears only after the decoder starts, not at file-loaded."""

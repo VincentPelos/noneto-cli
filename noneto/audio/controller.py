@@ -159,8 +159,17 @@ class PlaybackController:
                 if state.shuffle:
                     order = list(queue_order)
                     self._random.shuffle(order)
-                    if len(order) > 1 and order[0] == queue_order[state.index]:
-                        order[0], order[1] = order[1], order[0]
+                    last = source_tracks[queue_order[state.index]]
+                    last_id = getattr(last, "id", None)
+
+                    def same_song(index):
+                        track = source_tracks[index]
+                        return track is last or (last_id is not None and getattr(track, "id", None) == last_id)
+
+                    if same_song(order[0]):
+                        alternative = next((i for i, index in enumerate(order) if not same_song(index)), None)
+                        if alternative is not None:
+                            order[0], order[alternative] = order[alternative], order[0]
                     set_order(order)
                 select(0)
             else:

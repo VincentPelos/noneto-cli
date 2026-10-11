@@ -71,6 +71,11 @@ El reproductor muestra carátula, título, artista · álbum, `⇄` aleatorio, a
 reproducir/pausar, siguiente, `↻` repetir (no / cola / una), volumen clicable y una barra de
 progreso donde un clic salta a ese punto. La cola no se guarda entre sesiones.
 
+El aleatorio conserva la canción actual y mezcla solo las siguientes. Al desactivarlo, las pendientes
+recuperan su orden original. **+ Cola** siempre agrega al final. Con repetición de toda la cola, cada
+nuevo ciclo se vuelve a mezclar y evita empezar con la misma canción que terminó el anterior si hay
+otra distinta. Las entradas duplicadas de una playlist se conservan.
+
 Usa una terminal compatible con mouse; el diseño funciona desde 80 × 24 y luce mejor desde 100 × 28.
 
 **Temas:** Ctrl+T cambia entre nueve paletas (noneto-dark, catppuccin-mocha, dracula, tokyo-night,
