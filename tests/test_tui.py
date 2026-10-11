@@ -199,8 +199,10 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await pilot.click("#pause"))
             self.assertEqual(self.player.send.call_args.args[0], "play")
             self.assertTrue(await pilot.click("#next"))
+            await pilot.pause()  # Drain Button.Pressed before checking the controller callback.
             self.player.send.assert_called_with("next", None)
             self.assertTrue(await pilot.click("#repeat"))
+            await pilot.pause()
             self.player.send.assert_called_with("repeat", None)
 
     async def test_medium_density_rows_context_and_player_cover(self):
