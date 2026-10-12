@@ -3,7 +3,7 @@ from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock
 
-from textual.widgets import DataTable, Input, ProgressBar, Static
+from textual.widgets import DataTable, Input, ListView, ProgressBar, Static
 
 from noneto.audio.controller import PlaybackState
 from noneto.ui.themes import THEMES
@@ -23,6 +23,7 @@ class FakeLibrary:
         self.calls = []
         self.pending = {}
         self.media_pending = {}
+        self.playlist_pages = {0: [self.other]}
 
     def submit(self, operation, *args):
         self.calls.append((operation, args))
@@ -30,11 +31,15 @@ class FakeLibrary:
         if operation == "search" and args[0] in self.pending:
             self.pending[args[0]] = future
             return future
+        if operation == "search_playlists" and ("playlists", args[0]) in self.pending:
+            self.pending[("playlists", args[0])] = future
+            return future
         if operation == "lyrics" and args[0].id in self.media_pending:
             self.media_pending[args[0].id] = future
             return future
         result = {"playlists": [self.playlist, self.other], "tracks": [track()],
                   "search": [track("[red]Literal[/red]\x1b", 2)],
+                  "search_playlists": self.playlist_pages.get(args[-1], []) if operation == "search_playlists" else [],
                   "lyrics": ("", "[00:01.00]Linea uno\n[00:03.50]Linea dos", False),
                   "cover": tuple(tuple((20, 90, 140) for _ in range(12)) for _ in range(12)),
                   "create": self.playlist, "add": [2]}.get(operation)
@@ -43,6 +48,116 @@ class FakeLibrary:
 
 
 class TuiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ctrl_l_opens_library_and_playlist_choice_focuses_song_rows(self):
+        app = self.make_app()
+        async with app.run_test(size=(100, 32)) as pilot:
+            await pilot.pause()
+            app._views.active = "lyrics-view"
+            await pilot.press("ctrl+f", "ctrl+l")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, LibraryScreen)
+            self.assertIs(app.focused, app.screen.query_one("#playlists", ListView))
+            await pilot.press("down", "enter")
+            await pilot.pause()
+            self.assertEqual(app.current_playlist.id, "other")
+            self.assertEqual(app._views.active, "songs-view")
+            self.assertIs(app.focused, app.query_one("#tracks"))
+            app.show_tracks([track("First", 1), track("Second", 3)])
+            await pilot.press("down")
+            self.assertEqual(app.selected_track().id, 3)
+            app.query_one("#search", Input).value = "music"
+            app.search()
+            await pilot.pause()
+            self.assertIsNone(app.current_playlist)
+            await pilot.press("ctrl+l")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, LibraryScreen)
+            await pilot.press("enter")
+            await pilot.pause()
+            self.assertEqual(app.current_playlist.id, "owned")
+            self.assertIs(app.focused, app.query_one("#tracks"))
+            self.assertEqual(app.selected_track().id, 1)
+
+    async def test_search_playlists_open_with_keyboard_and_focus_songs(self):
+        app = self.make_app()
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            await pilot.press("ctrl+f", *"music", "enter")
+            await pilot.pause()
+            self.assertIn(("search_playlists", ("music", 0)), self.library.calls)
+            self.assertEqual(app.playlist_results, [self.library.other])
+            app._views.active = "playlists-view"
+            await pilot.pause()
+            results = app.query_one("#playlist-results", ListView)
+            results.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            self.assertEqual(app.current_playlist.id, "other")
+            self.assertEqual(app._views.active, "songs-view")
+            self.assertIs(app.focused, app.query_one("#tracks"))
+            await pilot.press("enter")
+            self.assertEqual(self.player.send.call_args.args[0], "play")
+
+    async def test_ctrl_c_exits_from_search_and_modal(self):
+        for modal in (False, True):
+            app = self.make_app()
+            async with app.run_test(size=(100, 32)) as pilot:
+                await pilot.pause()
+                if modal:
+                    app.action_new_playlist()
+                    await pilot.press("ctrl+f", "ctrl+l")
+                    self.assertIsInstance(app.screen, CreatePlaylist)
+                else:
+                    await pilot.press("ctrl+f")
+                await pilot.press("ctrl+c")
+                await pilot.pause()
+                self.assertFalse(app.is_running)
+
+    async def test_playlist_results_paginate_independently_of_songs(self):
+        app = self.make_app()
+        self.library.playlist_pages = {0: [self.library.other] * 50, 50: [self.library.playlist]}
+        async with app.run_test(size=(100, 32)) as pilot:
+            await pilot.pause()
+            app.query_one("#search", Input).value = "music"
+            app.search()
+            await pilot.pause()
+            app._views.active = "playlists-view"
+            await pilot.pause()
+            self.assertTrue(app.query_one("#more-playlists").display)
+            await pilot.click("#more-playlists")
+            await pilot.pause()
+            self.assertIn(("search_playlists", ("music", 50)), self.library.calls)
+            self.assertEqual(len(app.playlist_results), 51)
+            self.assertEqual(len(app.tracks), 1)
+            self.assertFalse(app.query_one("#more-playlists").display)
+
+    async def test_late_playlist_search_cannot_replace_library_or_new_search(self):
+        app = self.make_app()
+        self.library.pending = {("playlists", "old"): None, ("playlists", "new"): None}
+        async with app.run_test(size=(100, 32)) as pilot:
+            await pilot.pause()
+            for query in ("old", "new"):
+                app.query_one("#search", Input).value = query
+                app.search()
+                await pilot.pause()
+            self.library.pending[("playlists", "new")].set_result([self.library.other])
+            await pilot.pause()
+            self.library.pending[("playlists", "old")].set_result([self.library.playlist])
+            await pilot.pause()
+            self.assertEqual(app.playlist_results, [self.library.other])
+            app.query_one("#search", Input).value = "old"
+            app.search()
+            await pilot.pause()
+            await pilot.press("ctrl+l")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            self.library.pending[("playlists", "old")].set_result([self.library.other])
+            await pilot.pause()
+            self.assertEqual(app.current_playlist.id, "owned")
+            self.assertEqual(app.playlist_results, [])
+
+
     def make_app(self):
         self.library = FakeLibrary()
         self.player = Mock(snapshot=Mock(return_value=PlaybackState()))

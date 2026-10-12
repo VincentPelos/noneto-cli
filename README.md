@@ -14,9 +14,11 @@ Necesitas una cuenta de TIDAL con acceso a reproducción.
 > Noneto CLI es un proyecto personal, gratuito y **no oficial**. No está afiliado, asociado ni respaldado
 > por TIDAL. TIDAL es una marca de sus respectivos dueños.
 >
-> Usa la API no documentada de TIDAL a través de `tidalapi`: puede dejar de funcionar sin aviso y su uso es
-> bajo tu propio riesgo respecto de tu cuenta. Noneto CLI solo reproduce en streaming: no descarga ni guarda
-> música, y rechaza los streams cifrados (no evade DRM).
+> Noneto aporta una interfaz de terminal y el código que integra tu cuenta con TIDAL mediante la
+> biblioteca no oficial `tidalapi`. No opera el servicio de TIDAL ni desarrolla o controla sus API.
+> Cambios externos pueden hacer que las funciones dejen de estar disponibles; no se garantiza
+> compatibilidad futura. Noneto CLI solo reproduce en streaming: no descarga ni guarda música,
+> y rechaza los streams cifrados (no evade DRM).
 
 ## Instalar
 
@@ -84,16 +86,25 @@ una y Noneto CLI recuerda la última elegida.
 
 **Idioma:** español o inglés según el idioma de Windows; `--lang es` o `--lang en` lo fija.
 
+La búsqueda encuentra canciones y playlists. La pestaña **Playlists** muestra las listas encontradas;
+clic o Enter abre sus canciones. El botón **Biblioteca ▾** permite elegir otra lista de tu biblioteca.
+
+**Controles multimedia de Windows:** Noneto publica canción, artista, álbum, carátula y progreso,
+y acepta pausa, reproducción, anterior/siguiente y cambios de posición desde el panel del sistema.
+La presentación de la barra depende de Windows. El audio sigue reproduciéndose con mpv.
+La integración crea un acceso **Noneto CLI** en el menú Inicio para identificar la aplicación;
+si desinstalas Noneto con uv, puedes borrar también ese acceso del menú Inicio.
+
 | Tecla | Acción |
 | --- | --- |
-| Ctrl+L | Abrir Biblioteca |
+| Ctrl+L | Abrir Biblioteca; al elegir una playlist, enfocar sus canciones para usar las flechas |
 | Ctrl+F | Enfocar búsqueda |
 | Ctrl+N | Crear playlist |
 | Enter en la tabla | Reproducir desde la selección |
 | Espacio fuera de un campo de texto | Reproducir / pausar |
 | Ctrl+Derecha | Siguiente canción |
 | Ctrl+T | Cambiar de tema |
-| Ctrl+Q | Salir y detener el audio |
+| Ctrl+Q / Ctrl+C | Salir y detener el audio |
 
 ```powershell
 noneto --playlist "https://tidal.com/browse/playlist/UUID-DE-TU-PLAYLIST"
@@ -114,6 +125,16 @@ noneto --logout                    # borra la sesión local
 
 ## Alcance
 
+Noneto CLI ofrece el cliente: la interfaz, los controles y la integración local. El catálogo,
+la disponibilidad del audio y el acceso a la cuenta dependen de TIDAL y de las interfaces que
+utiliza `tidalapi`. Noneto no ofrece un servicio de música ni acceso independiente de tu cuenta.
+
+Si una API cambia o una integración deja de ser viable, las funciones afectadas pueden
+modificarse, deshabilitarse o retirarse. No se promete disponibilidad continua ni una corrección
+para todos los cambios de terceros. El software se ofrece tal como está, sin las garantías
+indicadas en [LICENSE](LICENSE); este aviso no sustituye las licencias de las dependencias
+ni las condiciones aplicables al servicio de TIDAL.
+
 - Por ahora solo Windows.
 - Sin descargas offline. Crea playlists y agrega canciones; todavía no renombra ni elimina.
 - Obtiene el stream al llegar a cada canción: puede haber una pausa breve entre pistas.
@@ -122,7 +143,7 @@ noneto --logout                    # borra la sesión local
 
 ```powershell
 uv venv --python 3.12
-uv pip install --python .venv/Scripts/python.exe -e .
+uv pip install --python .venv/Scripts/python.exe -e ".[windows-test]"
 .venv\Scripts\python.exe -m noneto --install-mpv
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
@@ -132,6 +153,15 @@ de audio real a un volumen inaudible.
 
 ## Licencia
 
-[MIT](LICENSE). Dependencias principales: `tidalapi` (LGPL-3.0), Textual y Rich (MIT), Requests (Apache-2.0),
+La licencia [MIT](LICENSE) cubre el código y la documentación propios de **Noneto CLI**.
+Las dependencias de terceros conservan sus propias licencias; MIT no las sustituye.
+
+En particular, **`tidalapi`**, la biblioteca Python que usamos para acceder a TIDAL, se utiliza
+como dependencia separada, sin modificar, bajo
+[LGPL-3.0-or-later](https://github.com/EbbLabs/python-tidal/blob/v0.8.11/LICENSE).
+También es software libre, con condiciones distintas de MIT. La licencia de Noneto no concede
+derechos sobre el servicio o la API de TIDAL, su música, letras, carátulas o marcas.
+
+Otras dependencias principales: Textual y Rich (MIT), Requests (Apache-2.0),
 NumPy (BSD), Pillow (MIT-CMU). mpv (GPL/LGPL) no se incluye: se descarga desde
 [shinchiro/mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake) y se ejecuta como proceso aparte.

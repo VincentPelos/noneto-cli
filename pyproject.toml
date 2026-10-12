@@ -17,10 +17,21 @@ dependencies = [
     "Pillow==12.3.0",
     "numpy==2.5.3",
     "pywebview==6.2.1",
+    "winrt-runtime==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Foundation==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Media==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Media.Interop==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams==3.2.1; sys_platform == 'win32'",
 ]
 
 [project.urls]
 Repository = "https://github.com/VincentPelos/noneto-cli"
+
+[project.optional-dependencies]
+windows-test = [
+    "winrt-Windows.Media.Control==3.2.1; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections==3.2.1; sys_platform == 'win32'",
+]
 
 [project.scripts]
 noneto = "noneto.app:main"

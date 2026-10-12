@@ -122,6 +122,8 @@ EN = {
     "Biblioteca ▾": "Library ▾",
     "Playlists de {name} · Ctrl+L": "{name}'s playlists · Ctrl+L",
     "Buscar canciones o artistas…": "Search songs or artists…",
+    "Buscar canciones o playlists…": "Search songs or playlists…",
+    "Sin playlists en esta búsqueda.": "No playlists in this search.",
     "Canciones": "Songs",
     "Más resultados": "More results",
     "Cola": "Queue",

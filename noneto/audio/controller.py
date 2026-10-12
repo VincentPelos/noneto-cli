@@ -214,12 +214,15 @@ class PlaybackController:
                         self._set(shuffle=not state.shuffle)
                     elif action == "visualizer":
                         visualizer = bool(value)
+                    elif action == "media_controls" and player:
+                        player.command("set_property", "media-controls", bool(value))
                     elif action == "repeat":
                         self._set(repeat={"off": "all", "all": "one", "one": "off"}[state.repeat])
-                    elif action == "pause" and player and state.status in ("Reproduciendo", "Pausado"):
-                        player.command("set_property", "pause", not state.paused)
-                        self._set(paused=not state.paused,
-                                  status="Reproduciendo" if state.paused else "Pausado")
+                    elif action in ("pause", "set_pause") and player and state.status in ("Reproduciendo", "Pausado"):
+                        paused = not state.paused if action == "pause" else bool(value)
+                        if paused != state.paused:
+                            player.command("set_property", "pause", paused)
+                            self._set(paused=paused, status="Pausado" if paused else "Reproduciendo")
                     elif action == "volume":
                         volume = max(0, min(100, state.volume + value))
                         if player:

@@ -113,21 +113,34 @@ class Catalog:
         return all_pages(playlist.tracks, limit=100)
 
     def search(self, query, offset=0):
+        return self._search(query, offset, tidalapi.Track, "tracks")
+
+    def search_playlists(self, query, offset=0):
+        return self._search(query, offset, tidalapi.Playlist, "playlists")
+
+    def _search(self, query, offset, model, key):
         query = query.strip()
         if not query or len(query) > 200:
             raise AppError(_("Escribe una busqueda de entre 1 y 200 caracteres."))
-        return self.session.search(query, models=[tidalapi.Track], limit=50,
-                                   offset=offset)["tracks"]
+        return self.session.search(query, models=[model], limit=50, offset=offset)[key]
 
     def lyrics(self, track):
         data = track.lyrics()
         return (data.text or "", data.subtitles or "", bool(data.right_to_left))
 
     def cover(self, track):
+        data = self.media_cover(track, 80)
+        if data is None:
+            return None
+        with Image.open(io.BytesIO(data)) as picture:
+            pixels = picture.convert("RGB").resize((12, 12), Image.Resampling.BILINEAR)
+            return tuple(tuple(pixels.getpixel((x, y)) for x in range(12)) for y in range(12))
+
+    def media_cover(self, track, resolution=320):
         album = getattr(track, "album", None)
         if album is None or not getattr(album, "cover", None):
             return None
-        url = https_url(album.image(80), hosts={"resources.tidal.com"})
+        url = https_url(album.image(resolution), hosts={"resources.tidal.com"})
         chunks, size = [], 0
         with requests.Session() as connection:
             connection.trust_env = False
@@ -141,13 +154,14 @@ class Catalog:
                     if size > 1024 * 1024:
                         raise AppError(_("Caratula demasiado grande."))
                     chunks.append(chunk)
+        data = b"".join(chunks)
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(b"".join(chunks))) as picture:
-                if picture.format != "JPEG" or max(picture.size) > 160:
+            with Image.open(io.BytesIO(data)) as picture:
+                if picture.format != "JPEG" or max(picture.size) > resolution * 2:
                     raise AppError(_("Caratula no valida."))
-                pixels = picture.convert("RGB").resize((12, 12), Image.Resampling.BILINEAR)
-                return tuple(tuple(pixels.getpixel((x, y)) for x in range(12)) for y in range(12))
+                picture.load()
+        return data
 
     def editable(self, playlist):
         return (str(getattr(getattr(playlist, "creator", None), "id", ""))

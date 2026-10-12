@@ -6,8 +6,9 @@ import tempfile
 from .auth.service import login, logout
 from .auth.storage import save_session
 from .audio.controller import PlaybackController
+from .audio.media_controls import MediaControls
 from .audio.mpv_install import install_mpv
-from .audio.player import find_mpv
+from .audio.player import Player, find_mpv
 from .audio.streams import stream_target
 from .services.library import Library
 from .services.tidal import Catalog, create_session
@@ -60,14 +61,19 @@ def main(argv=None):
         catalog = Catalog(session)
         with tempfile.TemporaryDirectory(prefix="noneto-") as directory:
             library = Library(catalog, persist=lambda: save_session(session))
-            playback = PlaybackController(lambda track: library.resolve(stream_target, track, directory))
+            controls = None
+            playback = PlaybackController(lambda track: library.resolve(stream_target, track, directory),
+                                          player_factory=lambda: Player(media_controls=not (controls and controls.available)))
             try:
+                controls = MediaControls(playback, lambda track: library.submit("media_cover", track))
                 settings = load_settings(THEMES)
                 interface = NonetoApp(library, playback, args.quality, args.playlist,
                                       getattr(session.user, "first_name", None), theme=settings.get("theme"),
                                       on_theme=lambda name: save_settings({**settings, "theme": name}))
                 interface.run()
             finally:
+                if controls is not None:
+                    controls.close()
                 playback.close()
                 library.close()
         return interface.return_code

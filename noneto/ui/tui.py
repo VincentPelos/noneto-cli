@@ -278,6 +278,7 @@ class NonetoApp(App):
     #views ContentSwitcher { height: 1fr; }
     TabPane { height: 1fr; padding: 0; }
     #tracks { height: 1fr; background: $background; }
+    #playlist-results { height: 1fr; background: $background; }
     DataTable > .datatable--header { background: $background; color: $text-muted; text-style: bold; }
     #more { width: 100%; margin: 0; }
     #rail { height: 1fr; padding: 0 1; scrollbar-size: 1 1; }
@@ -323,8 +324,9 @@ class NonetoApp(App):
     #playlists, #destinations { height: auto; max-height: 18; margin-bottom: 1; }
     #dialog ListItem { padding: 0 1; }
     """
-    BINDINGS = [Binding("ctrl+q", "quit", _("Salir")), Binding("ctrl+f", "search", _("Buscar")),
-                Binding("ctrl+l", "library", _("Biblioteca")),
+    BINDINGS = [Binding("ctrl+q,ctrl+c", "quit", _("Salir"), priority=True),
+                Binding("ctrl+f", "search", _("Buscar"), priority=True),
+                Binding("ctrl+l", "library", _("Biblioteca"), priority=True),
                 Binding("ctrl+n", "new_playlist", _("Nueva playlist")),
                 Binding("space", "pause", _("Pausa")), Binding("ctrl+right", "next", _("Siguiente")),
                 Binding("ctrl+t", "next_theme", _("Tema"))]
@@ -341,6 +343,8 @@ class NonetoApp(App):
         self.playlists = []
         self.tracks = []
         self.current_playlist = None
+        self.playlist_results = []
+        self._loading_playlists = False
         self.search_query = ""
         self._generation = 0
         self._loading_more = False
@@ -364,7 +368,7 @@ class NonetoApp(App):
             library = Button(_("Biblioteca ▾"), id="library")
             library.tooltip = _("Playlists de {name} · Ctrl+L", name=clean(self.user_name or _("Usuario")))
             yield library
-            yield Input(placeholder=_("Buscar canciones o artistas…"), max_length=200, id="search")
+            yield Input(placeholder=_("Buscar canciones o playlists…"), max_length=200, id="search")
             yield Button(_("Buscar"), id="search-button", variant="primary")
             yield Static("◆", id="quality", markup=False)
         with Vertical(id="views-wrap"):
@@ -372,6 +376,10 @@ class NonetoApp(App):
                 with TabPane(_("Canciones"), id="songs-view"):
                     yield TrackTable(id="tracks", cursor_type="row", zebra_stripes=True)
                     yield Button(_("Más resultados"), id="more")
+                with TabPane("Playlists", id="playlists-view"):
+                    yield ListView(id="playlist-results")
+                    yield Static(_("Sin playlists en esta búsqueda."), id="empty-results", markup=False)
+                    yield Button(_("Más resultados"), id="more-playlists")
                 with TabPane(_("Cola"), id="queue-view"):
                     with VerticalScroll(id="rail"):
                         yield Static(_("Sin canciones en cola."), id="up-next", markup=False)
@@ -452,6 +460,8 @@ class NonetoApp(App):
         self._mark_column, *_rest = table.add_columns("#", _("Título"), _("Duración"))
         self._update_action_target()
         self.query_one("#more", Button).display = False
+        self.query_one("#more-playlists", Button).display = False
+        self._views.hide_tab("playlists-view")
         self.set_interval(0.25, self.update_player)
         self.refresh_library(initial=True)
 
@@ -476,6 +486,10 @@ class NonetoApp(App):
     @on(TabbedContent.TabActivated)
     def _tab_changed(self):
         self.call_after_refresh(self._update_visualizer)
+        if self._views.active == "songs-view":
+            self.call_after_refresh(self.query_one("#tracks", DataTable).focus)
+        elif self._views.active == "playlists-view":
+            self.call_after_refresh(self.query_one("#playlist-results", ListView).focus)
 
     def _update_visualizer(self):
         visualizer = self.query_one(Visualizer)
@@ -537,19 +551,25 @@ class NonetoApp(App):
 
     def begin_view(self, heading):
         self._generation += 1
+        self._loading_more = False
+        self._loading_playlists = False
         self.tracks = []
         self.query_one(DataTable).clear()
         self._update_action_target()
         self.query_one("#library", Button).label = Text(f"{clean(heading)[:26]} ▾")
         self.hint(_("Cargando…"))
         self.query_one("#more", Button).display = False
+        self.query_one("#more", Button).disabled = False
+        self.query_one("#more-playlists", Button).disabled = False
         self._views.active = "songs-view"
         return self._generation
 
     def open_playlist(self, playlist):
         self.current_playlist = playlist
         self.search_query = ""
+        self._views.hide_tab("playlists-view")
         generation = self.begin_view(playlist.name)
+        self.call_after_refresh(self.query_one("#tracks", DataTable).focus)
         self.load_tracks(playlist, generation)
 
     @work
@@ -599,7 +619,46 @@ class NonetoApp(App):
             self.current_playlist = None
             self.search_query = query
             generation = self.begin_view(_("Resultados: {query}", query=query))
+            self.playlist_results = []
+            self.query_one("#playlist-results", ListView).clear()
+            self.query_one("#empty-results", Static).update(_("Cargando…"))
+            self.query_one("#empty-results").display = True
+            self.query_one("#more-playlists", Button).display = False
+            self._views.show_tab("playlists-view")
             self.search_page(query, generation, 0)
+            self.search_playlist_page(query, generation, 0)
+
+    @work
+    async def search_playlist_page(self, query, generation, offset):
+        self._loading_playlists = True
+        try:
+            playlists = await self.api("search_playlists", query, offset)
+            if generation != self._generation:
+                return
+            self.playlist_results.extend(playlists)
+            results = self.query_one("#playlist-results", ListView)
+            await results.extend(ListItem(Label(Text(clean(p.name)))) for p in playlists)
+            if generation != self._generation:
+                return
+            if self.playlist_results and results.index is None:
+                results.index = 0
+            self.query_one("#empty-results", Static).update(_("Sin playlists en esta búsqueda."))
+            self.query_one("#empty-results").display = not self.playlist_results
+            self.query_one("#more-playlists", Button).display = len(playlists) == 50
+        except Exception as error:
+            if generation == self._generation:
+                self.report(error)
+                self.query_one("#empty-results", Static).update(_("Búsqueda fallida. Pulsa Buscar para reintentar."))
+        finally:
+            if generation == self._generation:
+                self._loading_playlists = False
+                self.query_one("#more-playlists", Button).disabled = False
+
+    @on(ListView.Selected, "#playlist-results")
+    def open_search_playlist(self, event):
+        index = event.list_view.index
+        if index is not None and 0 <= index < len(self.playlist_results):
+            self.open_playlist(self.playlist_results[index])
 
     @work
     async def search_page(self, query, generation, offset):
@@ -613,8 +672,9 @@ class NonetoApp(App):
                 self.report(error)
                 self.hint(_("Búsqueda fallida. Pulsa Buscar para reintentar."))
         finally:
-            self._loading_more = False
-            self.query_one("#more", Button).disabled = False
+            if generation == self._generation:
+                self._loading_more = False
+                self.query_one("#more", Button).disabled = False
 
     def selected_track(self):
         index = self.query_one(DataTable).cursor_row
@@ -664,7 +724,8 @@ class NonetoApp(App):
             self.control("volume", change)
 
     def action_search(self):
-        self.query_one("#search", Input).focus()
+        if not isinstance(self.screen, ModalScreen):
+            self.query_one("#search", Input).focus()
 
     def action_pause(self):
         state = self.playback.snapshot()
@@ -734,6 +795,9 @@ class NonetoApp(App):
         identifier = event.button.id
         if identifier == "library":
             self.action_library()
+        elif identifier == "more-playlists" and not self._loading_playlists:
+            event.button.disabled = True
+            self.search_playlist_page(self.search_query, self._generation, len(self.playlist_results))
         elif identifier == "more" and not self._loading_more:
             self._loading_more = True
             event.button.disabled = True

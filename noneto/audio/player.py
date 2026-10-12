@@ -28,7 +28,7 @@ def find_mpv():
 
 
 class Player:
-    def __init__(self, executable=None, extra_args=()):
+    def __init__(self, executable=None, extra_args=(), media_controls=True):
         self.events = queue.Queue(maxsize=128)
         self.failed = threading.Event()
         self._closing = threading.Event()
@@ -46,6 +46,7 @@ class Player:
             "--terminal=no", "--volume=60", "--load-scripts=no", "--ytdl=no",
             "--load-unsafe-playlists=no", "--access-references=no", "--tls-verify=yes",
             "--network-timeout=30",
+            f"--media-controls={'yes' if media_controls else 'no'}",
             "--demuxer-lavf-o=protocol_whitelist=[file,https,tls,tcp]",
             f"--input-ipc-server={pipe_name}",
         ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,

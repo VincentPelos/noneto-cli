@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import Mock
 import wave
 from pathlib import Path
+import tidalapi
 
 from noneto.audio.controller import PlaybackController, describe_audio
 from noneto.audio.player import Player
@@ -48,6 +49,23 @@ class StubPlayer:
 
 
 class ControllerTests(unittest.TestCase):
+    def test_system_pause_and_play_are_idempotent(self):
+        ready = Future()
+        ready.set_result("local-target")
+        player = StubPlayer()
+        controller = PlaybackController(Mock(return_value=ready), lambda: player)
+        self.addCleanup(controller.close)
+        controller.send("play", ([NS(id=1)], 0))
+        wait_for(lambda: controller.snapshot().status == "Reproduciendo")
+        controller.send("set_pause", True)
+        controller.send("set_pause", True)
+        wait_for(lambda: controller.snapshot().paused)
+        controller.send("set_pause", False)
+        controller.send("set_pause", False)
+        wait_for(lambda: controller.snapshot().status == "Reproduciendo")
+        pauses = [command for command in player.commands if command[:2] == ("set_property", "pause")]
+        self.assertEqual(pauses, [("set_property", "pause", True), ("set_property", "pause", False)])
+
     def test_stop_discards_late_stream_and_next_can_play(self):
         pending = Future()
         pending.set_running_or_notify_cancel()
@@ -378,13 +396,22 @@ class LibraryTests(unittest.TestCase):
     def test_search_and_create_validate_input_before_network(self):
         session = Mock()
         catalog = Catalog(session)
-        for method in (catalog.create, catalog.search):
+        for method in (catalog.create, catalog.search, catalog.search_playlists):
             with self.assertRaises(AppError):
                 method("   ")
             with self.assertRaises(AppError):
                 method("x" * 201)
         session.search.assert_not_called()
         session.user.create_playlist.assert_not_called()
+
+    def test_search_requests_tracks_and_playlists_with_separate_offsets(self):
+        session = Mock()
+        session.search.return_value = {"tracks": ["track"], "playlists": ["playlist"]}
+        catalog = Catalog(session)
+        self.assertEqual(catalog.search(" music ", 0), ["track"])
+        session.search.assert_called_with("music", models=[tidalapi.Track], limit=50, offset=0)
+        self.assertEqual(catalog.search_playlists(" music ", 50), ["playlist"])
+        session.search.assert_called_with("music", models=[tidalapi.Playlist], limit=50, offset=50)
 
     def test_cover_rejects_non_tidal_image_host_before_request(self):
         session = Mock()
