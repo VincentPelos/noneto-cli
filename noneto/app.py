@@ -15,7 +15,7 @@ from .services.tidal import Catalog, create_session
 from .ui.terminal import Terminal
 from .ui.themes import THEMES
 from .diagnostics import configure, emit, failure
-from .i18n import LANGUAGES, _, set_language, system_language
+from .i18n import LANGUAGES, _, set_language, DEFAULT_LANGUAGE
 from .settings import load_settings, save_settings
 
 
@@ -23,18 +23,18 @@ def main(argv=None):
     # The language must be set before help texts are built and before the TUI module is imported.
     early = argparse.ArgumentParser(add_help=False)
     early.add_argument("--lang", choices=LANGUAGES)
-    set_language(early.parse_known_args(argv)[0].lang or system_language())
-    parser = argparse.ArgumentParser(prog="noneto", description=_("Noneto CLI: cliente no oficial de TIDAL para la terminal."))
-    parser.add_argument("--playlist", help=_("Enlace o UUID de la playlist que se abre al iniciar"))
+    set_language(early.parse_known_args(argv)[0].lang or DEFAULT_LANGUAGE)
+    parser = argparse.ArgumentParser(prog="noneto", description=_("Noneto CLI: unofficial TIDAL client for the terminal."))
+    parser.add_argument("--playlist", help=_("Link or UUID of the playlist to open at startup"))
     parser.add_argument("--quality", choices=["HIGH", "LOSSLESS", "HI_RES_LOSSLESS"], default="HI_RES_LOSSLESS",
-                        help=_("Calidad maxima pedida a TIDAL; por defecto, la mejor disponible"))
-    parser.add_argument("--lang", choices=LANGUAGES, help=_("Idioma de la interfaz (por defecto, el de Windows)"))
-    parser.add_argument("--logout", action="store_true", help=_("Elimina la sesion local y termina"))
+                        help=_("Highest quality requested from TIDAL; by default, the best available"))
+    parser.add_argument("--lang", choices=LANGUAGES, help=_("Interface language (default: English)"))
+    parser.add_argument("--logout", action="store_true", help=_("Delete the local session and exit"))
     parser.add_argument("--install-mpv", action="store_true",
-                        help=_("Descarga mpv (version fijada, SHA-256 verificado) y termina"))
+                        help=_("Download mpv (pinned version, SHA-256 verified) and exit"))
     args = parser.parse_args(argv)
     if os.name != "nt":
-        parser.error(_("Por ahora Noneto CLI funciona solo en Windows."))
+        parser.error(_("For now Noneto CLI only runs on Windows."))
     from .ui.tui import NonetoApp
     session = None
     ui = Terminal()

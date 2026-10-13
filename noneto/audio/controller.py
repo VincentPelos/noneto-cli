@@ -16,7 +16,7 @@ from .tap import ProcessTap
 class PlaybackState:
     tracks: tuple = ()
     index: int = -1
-    status: str = "Sin reproduccion"
+    status: str = "Not playing"
     position: float = 0
     duration: float = 0
     volume: int = 60
@@ -76,7 +76,7 @@ class PlaybackController:
         try:
             self._commands.put_nowait((action, value))
         except queue.Full:
-            raise AppError(_("Demasiadas acciones pendientes. Espera un momento.")) from None
+            raise AppError(_("Too many pending actions. Wait a moment.")) from None
 
     def close(self):
         self._closing.set()
@@ -132,13 +132,13 @@ class PlaybackController:
                         break
             state = self.snapshot()
             if 0 <= index < len(state.tracks):
-                self._set(index=index, status="Cargando", position=0, duration=0,
+                self._set(index=index, status="Loading", position=0, duration=0,
                           paused=False, error="", audio=())
                 emit("track.selected", track_id=track_id(state.tracks[index]), index=index,
                      count=len(state.tracks))
                 future = self.resolve(state.tracks[index])
             else:
-                self._set(index=-1, status="Detenido", position=0, duration=0, paused=False, audio=())
+                self._set(index=-1, status="Stopped", position=0, duration=0, paused=False, audio=())
 
         def read_audio():
             # audio-params exists only once the decoder starts, usually after file-loaded: retried on each poll.
@@ -218,20 +218,20 @@ class PlaybackController:
                         player.command("set_property", "media-controls", bool(value))
                     elif action == "repeat":
                         self._set(repeat={"off": "all", "all": "one", "one": "off"}[state.repeat])
-                    elif action in ("pause", "set_pause") and player and state.status in ("Reproduciendo", "Pausado"):
+                    elif action in ("pause", "set_pause") and player and state.status in ("Playing", "Paused"):
                         paused = not state.paused if action == "pause" else bool(value)
                         if paused != state.paused:
                             player.command("set_property", "pause", paused)
-                            self._set(paused=paused, status="Pausado" if paused else "Reproduciendo")
+                            self._set(paused=paused, status="Paused" if paused else "Playing")
                     elif action == "volume":
                         volume = max(0, min(100, state.volume + value))
                         if player:
                             player.command("set_property", "volume", volume)
                         self._set(volume=volume)
-                    elif action == "seek" and player and state.status in ("Reproduciendo", "Pausado"):
+                    elif action == "seek" and player and state.status in ("Playing", "Paused"):
                         player.command("seek", value, "relative")
                     elif (action == "seek_absolute" and player
-                          and state.status in ("Reproduciendo", "Pausado") and state.duration > 0):
+                          and state.status in ("Playing", "Paused") and state.duration > 0):
                         target = max(0.0, min(state.duration, float(value)))
                         player.command("seek", target, "absolute")
                         self._set(position=target)
@@ -247,7 +247,7 @@ class PlaybackController:
                     self._tap_player(player, visualizer)
                     if player:
                         if player.failed.is_set() or player.process.poll() is not None:
-                            raise AppError(_("Se perdio la comunicacion con mpv. Reintenta reproducir."))
+                            raise AppError(_("Lost communication with mpv. Try playing again."))
                         while True:
                             try:
                                 event = player.events.get_nowait()
@@ -258,17 +258,17 @@ class PlaybackController:
                                 started = True
                             elif kind == "file-loaded" and started:
                                 loading = None
-                                self._set(status="Reproduciendo")
+                                self._set(status="Playing")
                                 emit("playback.loaded", track_id=track_id(self.snapshot().tracks[self.snapshot().index]))
                                 read_audio()
                             elif kind == "end-file" and started and event.get("reason") == "eof":
                                 advance(ended=True)
                                 break
                             elif kind == "end-file" and started and event.get("reason") == "error":
-                                raise AppError(_("No se pudo cargar el audio. Reintenta o elige otra cancion."))
+                                raise AppError(_("Could not load the audio. Try again or pick another song."))
                         if loading is not None and time.monotonic() - loading > 45:
-                            raise AppError(_("El audio no cargo en 45 segundos. Reintenta."))
-                        if (self.snapshot().status in ("Reproduciendo", "Pausado")
+                            raise AppError(_("The audio did not load within 45 seconds. Try again."))
+                        if (self.snapshot().status in ("Playing", "Paused")
                                 and time.monotonic() - last_poll > 0.5):
                             last_poll = time.monotonic()
                             self._set(position=player.command("get_property", "time-pos", allow_unavailable=True) or 0,

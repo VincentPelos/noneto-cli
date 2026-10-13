@@ -23,7 +23,7 @@ COMMAND_TIMEOUT = 5
 def find_mpv():
     local = mpv_dir() / "mpv.exe"
     if not local.is_file():
-        raise AppError(_("Falta mpv. Instalalo con: noneto --install-mpv"))
+        raise AppError(_("mpv is missing. Install it with: noneto --install-mpv"))
     return str(local)
 
 
@@ -46,7 +46,7 @@ class Player:
             "--terminal=no", "--volume=60", "--load-scripts=no", "--ytdl=no",
             "--load-unsafe-playlists=no", "--access-references=no", "--tls-verify=yes",
             "--network-timeout=30",
-            f"--media-controls={'yes' if media_controls else 'no'}",
+            f"--media-controls={'yes' if media_controls else "off"}",
             "--demuxer-lavf-o=protocol_whitelist=[file,https,tls,tcp]",
             f"--input-ipc-server={pipe_name}",
         ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -59,14 +59,14 @@ class Player:
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 if self.process.poll() is not None:
-                    raise AppError(_("mpv no pudo iniciarse."))
+                    raise AppError(_("mpv could not start."))
                 try:
                     self.pipe = open(pipe_name, "r+b", buffering=0)
                     break
                 except OSError:
                     time.sleep(0.05)
             if self.pipe is None:
-                raise AppError(_("mpv no respondio en 10 segundos."))
+                raise AppError(_("mpv did not respond within 10 seconds."))
             self._configure_pipe()
             self.thread = threading.Thread(target=self._listen, daemon=True, name="mpv-ipc")
             self.thread.start()
@@ -84,14 +84,14 @@ class Player:
         get_pid.restype = wintypes.BOOL
         pid = wintypes.ULONG()
         if not get_pid(self._handle, ctypes.byref(pid)) or pid.value != self.process.pid:
-            raise AppError(_("No se pudo verificar el canal del reproductor."))
+            raise AppError(_("Could not verify the player channel."))
         set_state = kernel.SetNamedPipeHandleState
         set_state.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD),
                               ctypes.c_void_p, ctypes.c_void_p]
         set_state.restype = wintypes.BOOL
         mode = wintypes.DWORD(1)  # PIPE_NOWAIT: a hung peer must not block writes forever.
         if not set_state(self._handle, ctypes.byref(mode), None, None):
-            raise AppError(_("No se pudo configurar el canal del reproductor."))
+            raise AppError(_("Could not configure the player channel."))
 
     def _receive(self, message):
         if not isinstance(message, dict):
@@ -149,7 +149,7 @@ class Player:
 
     def _command(self, *args, timeout, allow_unavailable=False):
         if self.failed.is_set() or self._closing.is_set():
-            raise AppError(_("Se perdio la comunicacion con el reproductor."))
+            raise AppError(_("Lost communication with the player."))
         ready, response = threading.Event(), {}
         with self._lock:
             self._sequence += 1
@@ -159,11 +159,11 @@ class Player:
         try:
             message = (json.dumps({"command": list(args), "request_id": request_id}) + "\n").encode()
             if len(message) > 65536:
-                raise AppError(_("Comando de reproduccion demasiado grande."))
+                raise AppError(_("Playback command too large."))
             offset = 0
             while offset < len(message):
                 if time.monotonic() >= deadline:
-                    raise AppError(_("mpv no respondio al comando a tiempo."))
+                    raise AppError(_("mpv did not answer the command in time."))
                 try:
                     count = self.pipe.write(message[offset:])
                 except OSError as error:
@@ -176,17 +176,17 @@ class Player:
                     time.sleep(0.01)
             if not ready.wait(max(0, deadline - time.monotonic())):
                 emit("ipc.timeout", request_id=request_id)
-                raise AppError(_("mpv no respondio al comando a tiempo."))
+                raise AppError(_("mpv did not answer the command in time."))
             if (allow_unavailable and args and args[0] == "get_property"
                     and response.get("error") == "property unavailable"):
                 return None
             if response.get("error") != "success":
                 emit("ipc.rejected", request_id=request_id)
-                raise AppError(_("mpv rechazo un comando o se desconecto."))
+                raise AppError(_("mpv rejected a command or disconnected."))
             return response.get("data")
         except OSError:
             self.failed.set()
-            raise AppError(_("Se perdio la comunicacion con el reproductor.")) from None
+            raise AppError(_("Lost communication with the player.")) from None
         finally:
             with self._lock:
                 self._pending.pop(request_id, None)

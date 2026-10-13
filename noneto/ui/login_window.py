@@ -32,7 +32,7 @@ def window_login(url, redirect):
     log.setLevel(logging.CRITICAL + 1)  # its logs would include URLs with the code
     captured = []
     lock = threading.Lock()
-    window = webview.create_window(_("Iniciar sesion en TIDAL - Noneto CLI"), url, width=500, height=780)
+    window = webview.create_window(_("Sign in to TIDAL - Noneto CLI"), url, width=500, height=780)
 
     def on_request(request):
         target = str(getattr(request, "url", ""))
@@ -87,4 +87,4 @@ def clipboard_login(redirect, read=read_clipboard, interval=0.5, timeout=CLIPBOA
         text = read().strip()
         if text != before.strip() and text.startswith(redirect + "?"):
             return text
-    raise AppError(_("No se recibio la direccion de inicio de sesion a tiempo. Ejecuta noneto otra vez."))
+    raise AppError(_("The sign-in address did not arrive in time. Run noneto again."))

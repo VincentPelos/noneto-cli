@@ -60,7 +60,7 @@ class TimedSession(requests.Session):
              elapsed_ms=round((time.monotonic() - started) * 1000))
         if 300 <= response.status_code < 400:
             response.close()
-            raise AppError(_("Tidal devolvio una redireccion no permitida."))
+            raise AppError(_("TIDAL returned a disallowed redirect."))
         return response
 
 
@@ -83,11 +83,11 @@ def all_pages(fetch, limit=50, max_pages=1000):
     for _page in range(max_pages):
         page = fetch(limit=limit, offset=len(result))
         if len(page) > limit:
-            raise AppError(_("Tidal devolvio una pagina mayor de lo solicitado."))
+            raise AppError(_("TIDAL returned a larger page than requested."))
         result.extend(page)
         if len(page) < limit:
             return result
-    raise AppError(_("La paginacion excedio el limite de seguridad."))
+    raise AppError(_("Pagination exceeded the safety limit."))
 
 
 def playlist_id(value):
@@ -95,7 +95,7 @@ def playlist_id(value):
         r"(?:https://(?:www\.|listen\.)?tidal\.com/(?:browse/)?playlist/)?"
         r"([0-9a-fA-F-]{36})/?(?:\?[^\s]*)?", value.strip())
     if not match:
-        raise ValueError("Usa el enlace de una playlist de Tidal o su UUID.")
+        raise ValueError("Use a TIDAL playlist link or its UUID.")
     return str(uuid.UUID(match.group(1)))
 
 
@@ -121,7 +121,7 @@ class Catalog:
     def _search(self, query, offset, model, key):
         query = query.strip()
         if not query or len(query) > 200:
-            raise AppError(_("Escribe una busqueda de entre 1 y 200 caracteres."))
+            raise AppError(_("Type a search between 1 and 200 characters."))
         return self.session.search(query, models=[model], limit=50, offset=offset)[key]
 
     def lyrics(self, track):
@@ -148,18 +148,18 @@ class Catalog:
                                 verify=True) as response:
                 if response.status_code != 200 or not response.headers.get(
                         "Content-Type", "").lower().startswith("image/jpeg"):
-                    raise AppError(_("Caratula no disponible."))
+                    raise AppError(_("Cover art not available."))
                 for chunk in response.iter_content(16384):
                     size += len(chunk)
                     if size > 1024 * 1024:
-                        raise AppError(_("Caratula demasiado grande."))
+                        raise AppError(_("Cover art too large."))
                     chunks.append(chunk)
         data = b"".join(chunks)
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(data)) as picture:
                 if picture.format != "JPEG" or max(picture.size) > resolution * 2:
-                    raise AppError(_("Caratula no valida."))
+                    raise AppError(_("Invalid cover art."))
                 picture.load()
         return data
 
@@ -170,12 +170,12 @@ class Catalog:
     def create(self, title):
         title = title.strip()
         if not title or len(title) > 100:
-            raise AppError(_("El nombre debe tener entre 1 y 100 caracteres."))
+            raise AppError(_("The name must be between 1 and 100 characters."))
         return self.session.user.create_playlist(title, "")
 
     def add(self, playlist, track):
         # Refresh ownership and ETag immediately before writing.
         current = self.playlist(str(playlist.id))
         if not self.editable(current):
-            raise AppError(_("Solo puedes agregar canciones a tus propias playlists."))
+            raise AppError(_("You can only add songs to your own playlists."))
         return current.add([str(track.id)], allow_duplicates=False)

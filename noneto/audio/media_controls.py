@@ -78,8 +78,8 @@ class MediaControls:
                 if now - last_update >= 0.25:
                     duration = max(0, state.duration or getattr(track, "duration", 0) or 0)
                     position = min(duration, max(0, state.position))
-                    status = {"Reproduciendo": "playing", "Pausado": "paused",
-                              "Cargando": "loading"}.get(state.status, "stopped")
+                    status = {"Playing": "playing", "Paused": "paused",
+                              "Loading": "loading"}.get(state.status, "stopped")
                     backend.update(status, position, duration, state.index > 0 or position > 3,
                                    state.index + 1 < len(state.tracks) or state.repeat == "all")
                     last_update = now

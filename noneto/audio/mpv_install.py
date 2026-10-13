@@ -29,7 +29,7 @@ def install_mpv():
         return executable
     tar = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "tar.exe"
     if not tar.is_file():
-        raise AppError(_("Falta tar.exe de Windows para extraer mpv."))
+        raise AppError(_("Windows tar.exe is missing; it is needed to extract mpv."))
     with tempfile.TemporaryDirectory(prefix="noneto-mpv-") as work:
         archive = Path(work) / "mpv.7z"
         digest, size = hashlib.sha256(), 0
@@ -38,16 +38,16 @@ def install_mpv():
             # GitHub redirects release assets to its CDN; the hash below is what authenticates the file.
             with http.get(MPV_URL, stream=True, timeout=(10, 60), verify=True) as response:
                 if response.status_code != 200:
-                    raise AppError(_("No se pudo descargar mpv (HTTP {status}).", status=response.status_code))
+                    raise AppError(_("Could not download mpv (HTTP {status}).", status=response.status_code))
                 with archive.open("wb") as output:
                     for chunk in response.iter_content(65536):
                         size += len(chunk)
                         if size > MAX_ARCHIVE_BYTES:
-                            raise AppError(_("La descarga de mpv es demasiado grande."))
+                            raise AppError(_("The mpv download is too large."))
                         digest.update(chunk)
                         output.write(chunk)
         if digest.hexdigest() != MPV_SHA256:
-            raise AppError(_("El hash SHA-256 de mpv no coincide; no se instalo."))
+            raise AppError(_("The mpv SHA-256 hash does not match; it was not installed."))
         staging = Path(work) / "mpv"
         staging.mkdir()
         # bsdtar refuses absolute paths and ".." entries by default.
@@ -55,7 +55,7 @@ def install_mpv():
                                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
         if result.returncode != 0 or not (staging / "mpv.exe").is_file():
-            raise AppError(_("El archivo descargado no contiene mpv.exe."))
+            raise AppError(_("The downloaded file does not contain mpv.exe."))
         target = mpv_dir()
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():

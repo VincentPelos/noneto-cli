@@ -1,7 +1,7 @@
 [project]
 name = "noneto-cli"
 version = "1.0.1"
-description = "Cliente de terminal no oficial para TIDAL."
+description = "Unofficial TIDAL client for the terminal."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

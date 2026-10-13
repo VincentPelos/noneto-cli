@@ -5,25 +5,25 @@
   </picture>
 </h1>
 
-Cliente no oficial de TIDAL para la terminal de Windows: busca canciones, escucha tus playlists, crea otras
-y mira las letras con un visualizador estilo cava. Funciona con mouse y teclado.
-Usa Python 3.12, Textual, [`tidalapi`](https://github.com/EbbLabs/python-tidal) y mpv.
-Necesitas una cuenta de TIDAL con acceso a reproducción.
+An unofficial TIDAL client for the Windows terminal. Search for songs, play your playlists,
+create new ones, and follow lyrics with a cava-style visualizer. Supports mouse and keyboard.
+Built with Python 3.12, Textual, [`tidalapi`](https://github.com/EbbLabs/python-tidal), and mpv.
+You need a TIDAL account with playback access.
 
 > [!IMPORTANT]
-> Noneto CLI es un proyecto personal, gratuito y **no oficial**. No está afiliado, asociado ni respaldado
-> por TIDAL. TIDAL es una marca de sus respectivos dueños.
+> Noneto CLI is a free, personal, **unofficial** project. It is not affiliated with, associated
+> with, or endorsed by TIDAL. TIDAL is a trademark of its respective owners.
 >
-> Noneto aporta una interfaz de terminal y el código que integra tu cuenta con TIDAL mediante la
-> biblioteca no oficial `tidalapi`. No opera el servicio de TIDAL ni desarrolla o controla sus API.
-> Cambios externos pueden hacer que las funciones dejen de estar disponibles; no se garantiza
-> compatibilidad futura. Noneto CLI solo reproduce en streaming: no descarga ni guarda música,
-> y rechaza los streams cifrados (no evade DRM).
+> Noneto provides a terminal interface and connects your account to TIDAL through the unofficial
+> `tidalapi` library. It does not operate TIDAL's service or develop or control its APIs.
+> External changes may make features unavailable; future compatibility is not guaranteed.
+> Noneto CLI streams music only: it does not download or save music, and it rejects encrypted
+> streams rather than bypassing DRM.
 
-## Instalar
+## Install
 
-Requiere [uv](https://docs.astral.sh/uv/getting-started/installation/). uv crea el comando `noneto` y,
-si hace falta, descarga Python 3.12.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/). It creates the `noneto`
+command and downloads Python 3.12 if needed.
 
 ```powershell
 uv tool install git+https://github.com/VincentPelos/noneto-cli
@@ -31,115 +31,115 @@ noneto --install-mpv
 noneto
 ```
 
-`--install-mpv` descarga una versión fijada de mpv, verifica su SHA-256 y la deja en
-`%LOCALAPPDATA%\Noneto\mpv`. Noneto CLI no usa otro mpv que tengas en el PATH.
-La instalación no pide tu cuenta. Si `noneto` no se encuentra, ejecuta `uv tool update-shell`
-y abre una terminal nueva.
+`--install-mpv` downloads a pinned mpv build, verifies its SHA-256 hash, and installs it in
+`%LOCALAPPDATA%\Noneto\mpv`. Noneto CLI uses that build rather than an mpv executable on your PATH.
+Installation does not ask for your TIDAL account. If `noneto` is not found, run
+`uv tool update-shell` and open a new terminal.
 
-## Actualizar y desinstalar
+## Update and uninstall
 
 ```powershell
 uv tool upgrade noneto-cli
 uv tool uninstall noneto-cli
-Remove-Item -Recurse "$env:LOCALAPPDATA\Noneto"   # opcional: sesión, logs y mpv
+Remove-Item -Recurse "$env:LOCALAPPDATA\Noneto"   # optional: session, logs, and mpv
 ```
 
-## Uso
+## Use
 
-1. La primera vez se abre una ventana con el inicio de sesión de TIDAL. Inicia sesión y la ventana
-   se cierra sola. Solo hace falta una vez; luego la sesión se recupera sola.
-2. Si la ventana no puede abrirse (falta WebView2), se usa tu navegador: al terminar, TIDAL muestra una
-   página "Oops"; copia su dirección (Ctrl+L, Ctrl+C) y Noneto CLI la detecta sola.
-3. Se abre tu primera playlist.
-4. Haz clic en una canción, o selecciónala y pulsa Enter. La cola sigue con las siguientes.
+1. On your first launch, a TIDAL sign-in window opens. Sign in and the window closes automatically.
+   Later launches restore your session.
+2. If the window cannot open because WebView2 is unavailable, Noneto opens your browser.
+   TIDAL may finish on an "Oops" page; copy its address with Ctrl+L, Ctrl+C. Noneto detects it.
+3. Your first playlist opens.
+4. Click a song, or select it and press Enter. Playback continues through the remaining songs.
 
-**Barra superior:** **Biblioteca ▾** abre tus playlists propias y favoritas, permite crear una
-y actualizar la lista. Al lado está el buscador (canciones o artistas) y la insignia de calidad.
-Mientras suena algo muestra lo que de verdad llega, medido en el audio decodificado (por ejemplo
-`◆ FLAC 24/96`); sin reproducir solo muestra lo pedido (`Pedido: Hi-Res`). Si TIDAL entrega menos de
-lo que esa pista ofrece, la insignia cambia a `◇ … ↓` en otro color. Al pasar el mouse se ven lo
-pedido, lo recibido y las calidades en que existe la pista.
+**Top bar:** **Library ▾** opens your own and favorite playlists, lets you create a playlist,
+and refreshes the list. The search field and quality badge sit beside it.
+During playback, the badge shows the audio mpv actually decodes, such as `◆ FLAC 24/96`.
+Before playback, it shows the requested quality (`Requested: Hi-Res`). If TIDAL delivers less
+than the track offers, the badge changes to `◇ … ↓` in a warning color. Hover over it to see
+the requested quality, received quality, and available track tiers.
 
-**Pestañas:** **Canciones** muestra la lista (título y, debajo, artista · álbum; `▷` marca la que
-suena). **Cola · N** muestra las próximas canciones. **Letras** muestra carátula y letras,
-sincronizadas cuando TIDAL las entrega.
+**Tabs:** **Songs** lists titles with artist and album below each one; `▷` marks the current song.
+**Queue · N** lists upcoming songs. **Lyrics** shows cover art and lyrics, synchronized when
+TIDAL provides timestamps. **Playlists** lists playlists found through search; click one or
+press Enter to open its songs. **Library ▾** lets you switch to a playlist from your library.
 
-**Visualizador:** en Letras, si sobran filas, aparecen barras estilo cava con el espectro real
-de lo que suena. Se captura solo el audio de Noneto CLI (no el de otras aplicaciones) y solo mientras
-el visualizador está visible. Las muestras no se guardan. Requiere Windows 10 2004 o posterior.
+**Visualizer:** spare rows in the Lyrics tab show cava-style bars based on the actual audio
+played by Noneto. Capture is limited to mpv's process and runs only while the visualizer is
+visible. Samples are never saved. Requires Windows 10 version 2004 or later.
 
-**Selección y reproductor:** **+ Cola** y **+ Playlist** agregan la canción seleccionada.
-El reproductor muestra carátula, título, artista · álbum, `⇄` aleatorio, anterior,
-reproducir/pausar, siguiente, `↻` repetir (no / cola / una), volumen clicable y una barra de
-progreso donde un clic salta a ese punto. La cola no se guarda entre sesiones.
+**Selection and player:** **+ Queue** and **+ Playlist** add the selected song. The player shows
+cover art, title, artist, album, shuffle, previous/play/pause/next controls, repeat modes
+(off, queue, or one song), clickable volume, and a progress bar you can click to seek.
+This production version does not save the playback queue between sessions.
 
-El aleatorio conserva la canción actual y mezcla solo las siguientes. Al desactivarlo, las pendientes
-recuperan su orden original. **+ Cola** siempre agrega al final. Con repetición de toda la cola, cada
-nuevo ciclo se vuelve a mezclar y evita empezar con la misma canción que terminó el anterior si hay
-otra distinta. Las entradas duplicadas de una playlist se conservan.
+Shuffle keeps the current song and mixes only upcoming songs. Turning it off restores the
+remaining songs to their original order. **+ Queue** always appends to the end. With repeat-all,
+each new cycle is reshuffled and avoids starting with the same song that ended the previous
+cycle when another song is available. Duplicate playlist entries are preserved.
 
-Usa una terminal compatible con mouse; el diseño funciona desde 80 × 24 y luce mejor desde 100 × 28.
+Use a terminal with mouse support. The layout works at 80 × 24 and looks best at 100 × 28 or larger.
 
-**Temas:** Ctrl+T cambia entre nueve paletas (noneto-dark, catppuccin-mocha, dracula, tokyo-night,
-nord, rose-pine, flexoki, catppuccin-latte y rose-pine-dawn). El visualizador usa los colores de cada
-una y Noneto CLI recuerda la última elegida.
+**Themes:** Ctrl+T cycles through nine palettes: noneto-dark, catppuccin-mocha, dracula,
+tokyo-night, nord, rose-pine, flexoki, catppuccin-latte, and rose-pine-dawn. The visualizer uses
+the active theme's colors. Noneto remembers your last theme.
 
-**Idioma:** español o inglés según el idioma de Windows; `--lang es` o `--lang en` lo fija.
+**Language:** English is the default on every Windows language setting. Use `--lang es` for
+Spanish or `--lang en` for English. Playlist names, song metadata, and lyrics keep their original language.
 
-La búsqueda encuentra canciones y playlists. La pestaña **Playlists** muestra las listas encontradas;
-clic o Enter abre sus canciones. El botón **Biblioteca ▾** permite elegir otra lista de tu biblioteca.
+**Windows media controls:** Noneto publishes the song, artist, album, cover art, and progress
+to the system media session. It accepts play/pause, previous/next, and seek commands from the
+system panel. Windows decides how that panel looks; audio remains in mpv.
+Noneto creates a **Noneto CLI** Start menu shortcut to identify the application. After
+uninstalling with uv, you can also delete that shortcut.
 
-**Controles multimedia de Windows:** Noneto publica canción, artista, álbum, carátula y progreso,
-y acepta pausa, reproducción, anterior/siguiente y cambios de posición desde el panel del sistema.
-La presentación de la barra depende de Windows. El audio sigue reproduciéndose con mpv.
-La integración crea un acceso **Noneto CLI** en el menú Inicio para identificar la aplicación;
-si desinstalas Noneto con uv, puedes borrar también ese acceso del menú Inicio.
-
-| Tecla | Acción |
+| Shortcut | Action |
 | --- | --- |
-| Ctrl+L | Abrir Biblioteca; al elegir una playlist, enfocar sus canciones para usar las flechas |
-| Ctrl+F | Enfocar búsqueda |
-| Ctrl+N | Crear playlist |
-| Enter en la tabla | Reproducir desde la selección |
-| Espacio fuera de un campo de texto | Reproducir / pausar |
-| Ctrl+Derecha | Siguiente canción |
-| Ctrl+T | Cambiar de tema |
-| Ctrl+Q / Ctrl+C | Salir y detener el audio |
+| Ctrl+L | Open Library; choosing a playlist focuses its songs for arrow-key navigation |
+| Ctrl+F | Focus search |
+| Ctrl+N | Create a playlist |
+| Enter in the song table | Play from the selected song |
+| Space outside a text field | Play / pause |
+| Ctrl+Right | Next song |
+| Ctrl+T | Change theme |
+| Ctrl+Q / Ctrl+C | Quit and stop audio |
 
 ```powershell
-noneto --playlist "https://tidal.com/browse/playlist/UUID-DE-TU-PLAYLIST"
-noneto                             # pide la mejor calidad: Hi-Res FLAC hasta 24-bit / 192 kHz
-noneto --quality LOSSLESS          # tope en 16-bit / 44.1 kHz
-noneto --quality HIGH              # menos datos (AAC 320 kbps)
-noneto --lang en                   # interfaz en inglés
-noneto --logout                    # borra la sesión local
+noneto --playlist "https://tidal.com/browse/playlist/YOUR-PLAYLIST-UUID"
+noneto                             # request Hi-Res FLAC, up to 24-bit / 192 kHz
+noneto --quality LOSSLESS          # cap the request at CD quality
+noneto --quality HIGH              # use less data (AAC 320 kbps)
+noneto --lang es                   # use the Spanish interface
+noneto --logout                    # delete the local session
 ```
 
-## Privacidad
+## Privacy
 
-- No se pide ni se guarda tu contraseña. Los tokens se guardan en `%LOCALAPPDATA%\Noneto\session.bin`,
-  cifrados con DPAPI para tu usuario de Windows. `--logout` los borra de este equipo; no los revoca en TIDAL.
-- Ni la música, ni las letras, ni las carátulas se guardan en disco.
-- Los registros (`%LOCALAPPDATA%\Noneto\logs\noneto.log`) solo tienen fechas, IDs de canciones, etapas,
-  estados HTTP y tiempos. No incluyen tokens, búsquedas, URLs firmadas ni audio, y quedan solo en tu equipo.
+- Noneto does not ask for or save your password. Tokens are encrypted with Windows DPAPI for
+  your user account and stored in `%LOCALAPPDATA%\Noneto\session.bin`. `--logout` deletes the
+  local session; it does not revoke the tokens at TIDAL.
+- Music, lyrics, and cover art are not saved to disk.
+- Logs in `%LOCALAPPDATA%\Noneto\logs\noneto.log` contain timestamps, track IDs, processing
+  stages, HTTP status codes, and timings. They exclude tokens, searches, signed URLs, and
+  audio, and remain on your computer.
 
-## Alcance
+## Scope and limitations
 
-Noneto CLI ofrece el cliente: la interfaz, los controles y la integración local. El catálogo,
-la disponibilidad del audio y el acceso a la cuenta dependen de TIDAL y de las interfaces que
-utiliza `tidalapi`. Noneto no ofrece un servicio de música ni acceso independiente de tu cuenta.
+Noneto CLI provides the client interface, controls, and local integration. The catalog,
+audio availability, and account access depend on TIDAL and the interfaces used by `tidalapi`.
+Noneto does not provide a music service or access independent of your TIDAL account.
 
-Si una API cambia o una integración deja de ser viable, las funciones afectadas pueden
-modificarse, deshabilitarse o retirarse. No se promete disponibilidad continua ni una corrección
-para todos los cambios de terceros. El software se ofrece tal como está, sin las garantías
-indicadas en [LICENSE](LICENSE); este aviso no sustituye las licencias de las dependencias
-ni las condiciones aplicables al servicio de TIDAL.
+If an API changes or an integration becomes unavailable, affected features may change,
+be disabled, or be removed. Continuous availability and fixes for every third-party change
+are not guaranteed. The software is provided as-is, subject to the warranty terms in
+[LICENSE](LICENSE). This notice does not replace dependency licenses or TIDAL's service terms.
 
-- Por ahora solo Windows.
-- Sin descargas offline. Crea playlists y agrega canciones; todavía no renombra ni elimina.
-- Obtiene el stream al llegar a cada canción: puede haber una pausa breve entre pistas.
+- This production version supports Windows only.
+- No offline downloads. You can create playlists and add songs; renaming and deleting are not implemented.
+- Streams are resolved when each song is selected, so a brief pause between tracks is possible.
 
-## Pruebas
+## Tests
 
 ```powershell
 uv venv --python 3.12
@@ -148,20 +148,20 @@ uv pip install --python .venv/Scripts/python.exe -e ".[windows-test]"
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-No requieren cuenta. Las de mpv usan audio local con salida nula; la del visualizador usa el dispositivo
-de audio real a un volumen inaudible.
+Tests do not require a TIDAL account. mpv tests use local audio and a null audio output.
+The visualizer capture test uses the actual audio device at an inaudible volume.
 
-## Licencia
+## License
 
-La licencia [MIT](LICENSE) cubre el código y la documentación propios de **Noneto CLI**.
-Las dependencias de terceros conservan sus propias licencias; MIT no las sustituye.
+The [MIT license](LICENSE) covers Noneto CLI's own code and documentation. Third-party
+dependencies retain their own licenses; MIT does not replace them.
 
-En particular, **`tidalapi`**, la biblioteca Python que usamos para acceder a TIDAL, se utiliza
-como dependencia separada, sin modificar, bajo
+In particular, **`tidalapi`**, the Python library used to access TIDAL, is a separate,
+unmodified dependency under
 [LGPL-3.0-or-later](https://github.com/EbbLabs/python-tidal/blob/v0.8.11/LICENSE).
-También es software libre, con condiciones distintas de MIT. La licencia de Noneto no concede
-derechos sobre el servicio o la API de TIDAL, su música, letras, carátulas o marcas.
+It is free software with different conditions from MIT. Noneto's license grants no rights
+to TIDAL's service, APIs, music, lyrics, cover art, or trademarks.
 
-Otras dependencias principales: Textual y Rich (MIT), Requests (Apache-2.0),
-NumPy (BSD), Pillow (MIT-CMU). mpv (GPL/LGPL) no se incluye: se descarga desde
-[shinchiro/mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake) y se ejecuta como proceso aparte.
+Other main dependencies include Textual and Rich (MIT), Requests (Apache-2.0), NumPy (BSD),
+and Pillow (MIT-CMU). mpv (GPL/LGPL) is downloaded separately from
+[shinchiro/mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake) and runs as a separate process.

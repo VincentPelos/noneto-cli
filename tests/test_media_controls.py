@@ -33,7 +33,7 @@ class MediaControlsTests(unittest.TestCase):
     def make_bridge(self, tracks=None):
         self.player = Mock()
         self.player.snapshot.return_value = PlaybackState(tracks=tracks or (track(1, "First"),),
-                                                          index=0, status="Reproduciendo", position=12, duration=180)
+                                                          index=0, status="Playing", position=12, duration=180)
         self.backend = Mock()
         self.art = Future()
         bridge = MediaControls(self.player, Mock(return_value=self.art),
@@ -68,7 +68,7 @@ class MediaControlsTests(unittest.TestCase):
         old, new = Future(), Future()
         old.set_running_or_notify_cancel()
         player = Mock(snapshot=Mock(return_value=PlaybackState(tracks=(track(1, "First"), track(2, "Second")),
-                                                              index=0, status="Reproduciendo")))
+                                                              index=0, status="Playing")))
         backend = Mock()
         art = Mock(side_effect=[old, new])
         bridge = MediaControls(player, art, backend_factory=Mock(return_value=backend))
@@ -95,7 +95,7 @@ class MediaControlsTests(unittest.TestCase):
         time.sleep(0.15)
         self.assertTrue(bridge.available)
         self.backend.thumbnail.assert_not_called()
-        self.player.snapshot.return_value = replace(self.player.snapshot.return_value, paused=True, status="Pausado")
+        self.player.snapshot.return_value = replace(self.player.snapshot.return_value, paused=True, status="Paused")
         wait_for(lambda: self.backend.update.call_args.args[0] == "paused")
 
 
@@ -108,7 +108,7 @@ class NativeMediaTests(unittest.IsolatedAsyncioTestCase):
         except ImportError:
             self.skipTest("Install the windows-test extra for native session inspection")
         player = Mock(snapshot=Mock(return_value=PlaybackState(tracks=(track(9876, "Noneto SMTC test"),),
-                                                              index=0, status="Reproduciendo", position=12, duration=180)))
+                                                              index=0, status="Playing", position=12, duration=180)))
         image = Image.new("RGB", (80, 80), "navy")
         stream = io.BytesIO()
         image.save(stream, format="JPEG")

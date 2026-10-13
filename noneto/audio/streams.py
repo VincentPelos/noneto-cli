@@ -21,26 +21,26 @@ def validate_dash(data):
     try:
         root = ElementTree.fromstring(data, forbid_dtd=True)
     except (DefusedXmlException, ElementTree.ParseError, ValueError):
-        raise AppError(_("Manifiesto DASH no valido.")) from None
+        raise AppError(_("Invalid DASH manifest.")) from None
     if root.tag != f"{{{DASH_NS}}}MPD":
-        raise AppError(_("Manifiesto DASH no valido."))
+        raise AppError(_("Invalid DASH manifest."))
     references = 0
 
     def visit(node, base=None, depth=0):
         nonlocal references
         if depth > 32:
-            raise AppError(_("Manifiesto DASH demasiado profundo."))
+            raise AppError(_("DASH manifest is nested too deeply."))
         if not isinstance(node.tag, str) or not node.tag.startswith(f"{{{DASH_NS}}}"):
-            raise AppError(_("Espacio de nombres DASH no soportado."))
+            raise AppError(_("Unsupported DASH namespace."))
         tag = node.tag.rsplit("}", 1)[-1]
         if tag in {"ContentProtection", "Location", "PatchLocation", "UTCTiming"}:
-            raise AppError(_("El manifiesto usa una funcion DASH no soportada."))
+            raise AppError(_("The manifest uses an unsupported DASH feature."))
         if any(key.startswith("{http://www.w3.org/1999/xlink}")
                or key == "{http://www.w3.org/XML/1998/namespace}base" for key in node.attrib):
-            raise AppError(_("No se permiten referencias XML externas."))
+            raise AppError(_("External XML references are not allowed."))
         bases = node.findall(f"{{{DASH_NS}}}BaseURL")
         if len(bases) > 1:
-            raise AppError(_("Multiples BaseURL no soportadas."))
+            raise AppError(_("Multiple BaseURL elements are not supported."))
         if bases:
             value = (bases[0].text or "").strip()
             base = https_url(urljoin(base or "", value))
@@ -49,7 +49,7 @@ def validate_dash(data):
             if key in node.attrib:
                 value = node.attrib[key]
                 if "\\" in value or any(ord(c) < 33 for c in value):
-                    raise AppError(_("Referencia DASH no valida."))
+                    raise AppError(_("Invalid DASH reference."))
                 https_url(urljoin(base or "", value))
                 references += 1
         for child in node:
@@ -58,7 +58,7 @@ def validate_dash(data):
 
     visit(root)
     if not references:
-        raise AppError(_("El manifiesto no contiene destinos de audio."))
+        raise AppError(_("The manifest has no audio destinations."))
 
 
 def stream_target(track, directory):
@@ -72,10 +72,10 @@ def stream_target(track, directory):
     # Check before decoding the base64 envelope in tidalapi.
     encoded = getattr(stream, "manifest", "")
     if isinstance(encoded, str) and len(encoded) > MAX_MANIFEST_BYTES * 4 // 3 + 4:
-        raise AppError(_("Manifiesto de audio demasiado grande."))
+        raise AppError(_("Audio manifest too large."))
     data = stream.get_manifest_data()
     if not isinstance(data, str) or len(data.encode("utf-8")) > MAX_MANIFEST_BYTES:
-        raise AppError(_("Manifiesto de audio demasiado grande."))
+        raise AppError(_("Audio manifest too large."))
     if stream.manifest_mime_type == "application/dash+xml":
         validate_dash(data)
         emit("stream.validated", track_id=track_id(track), target_kind="dash")
@@ -84,13 +84,13 @@ def stream_target(track, directory):
             target.write(data)
             return str(Path(target.name).resolve())
     if stream.manifest_mime_type != "application/vnd.tidal.bts":
-        raise AppError(_("Formato de manifiesto no soportado."))
+        raise AppError(_("Unsupported manifest format."))
     try:
         manifest = json.loads(data)
         if not isinstance(manifest, dict):
             raise ValueError
         if manifest.get("encryptionType") not in (None, "NONE"):
-            raise AppError(_("Este stream requiere un metodo de reproduccion no soportado."))
+            raise AppError(_("This stream needs an unsupported playback method."))
         urls = manifest["urls"]
         if not isinstance(urls, list) or not urls:
             raise ValueError
@@ -98,4 +98,4 @@ def stream_target(track, directory):
         emit("stream.validated", track_id=track_id(track), target_kind="https")
         return target
     except (ValueError, KeyError, TypeError):
-        raise AppError(_("Tidal no devolvio un manifiesto de audio valido.")) from None
+        raise AppError(_("TIDAL did not return a valid audio manifest.")) from None

@@ -36,13 +36,13 @@ def login(session, notify, ask):
     url = https_url(session.pkce_login_url(), hosts={"login.tidal.com"})
     answer = ask("redirect", url=url, redirect=redirect)
     if not answer or not answer.strip():
-        raise AppError(_("Inicio de sesion cancelado."))
+        raise AppError(_("Sign-in cancelled."))
     code = pkce_code(answer, redirect)
     try:
         # Rebuilt from the validated code: nothing else from the pasted text reaches TIDAL.
         token = session.pkce_get_auth_token(f"{redirect}?{urlencode({'code': code})}")
     except requests.HTTPError:
-        raise AppError(_("TIDAL rechazo el codigo; puede haber caducado. Ejecuta noneto otra vez.")) from None
+        raise AppError(_("TIDAL rejected the code; it may have expired. Run noneto again.")) from None
     session.process_auth_token(token, is_pkce_token=True)
     save_session(session)
     notify("session-started")

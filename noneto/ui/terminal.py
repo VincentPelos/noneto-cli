@@ -9,41 +9,41 @@ from .login_window import WindowUnavailable, clipboard_login, window_login
 class Terminal:
     def notify(self, event, **data):
         if event == "logs-ready":
-            print(_("Diagnostico: {path}", path=data["path"]))
+            print(_("Diagnostics: {path}", path=data["path"]))
         elif event == "logs-unavailable":
-            print(_("No se pudo abrir el archivo de diagnostico."))
+            print(_("Could not open the diagnostics file."))
         elif event == "welcome":
             print("NONETO CLI")
         elif event == "logout":
-            print(_("Sesion local eliminada."))
+            print(_("Local session deleted."))
         elif event == "mpv-installing":
-            print(_("Instalando mpv (si falta)..."))
+            print(_("Installing mpv (if missing)..."))
         elif event == "mpv-ready":
-            print(_("mpv listo: {path}", path=data["path"]))
+            print(_("mpv ready: {path}", path=data["path"]))
         elif event == "bye":
-            print("\n" + _("Hasta luego."))
+            print("\n" + _("Goodbye."))
         elif event == "error":
             error = data["error"]
             if isinstance(error, AppError):
                 print(f"\n{error}")
             else:
-                print("\n" + _("No se pudo completar la operacion ({label}).", label=error_label(error)))
-                print(_("Comprueba tu conexion y tu cuenta. Para iniciar sesion otra vez: noneto --logout"))
+                print("\n" + _("The operation could not be completed ({label}).", label=error_label(error)))
+                print(_("Check your connection and your account. To sign in again: noneto --logout"))
         elif event == "session-restored":
-            print(_("Sesion recuperada."))
+            print(_("Session restored."))
         elif event == "session-invalid":
-            print(_("No se pudo recuperar la sesion. Inicia sesion nuevamente."))
+            print(_("Could not restore the session. Please sign in again."))
         elif event == "session-upgrade":
-            print(_("Tu sesion es de un tipo antiguo sin acceso a Hi-Res. Inicia sesion otra vez (solo esta vez)."))
+            print(_("Your session is an older type without Hi-Res access. Please sign in again (only this once)."))
         elif event == "authorize-window":
-            print(_("Inicia sesion en la ventana de TIDAL que se abrio. Se cierra sola al terminar."))
+            print(_("Sign in in the TIDAL window that just opened. It closes by itself when you are done."))
         elif event == "authorize-browser":
-            print("\n" + _("No se pudo abrir la ventana. Inicia sesion en TIDAL desde tu navegador:"))
+            print("\n" + _("Could not open the window. Sign in to TIDAL in your browser:"))
             print(data["url"])
-            print("\n" + _("Al terminar, TIDAL muestra una pagina de error (\"Oops\"). Es normal."))
-            print(_("Copia la direccion de esa pagina (Ctrl+L, Ctrl+C): Noneto la detecta sola. (Ctrl+C aqui cancela)"))
+            print("\n" + _("When you finish, TIDAL shows an error page (\"Oops\"). That is expected."))
+            print(_("Copy that page's address (Ctrl+L, Ctrl+C): Noneto picks it up by itself. (Ctrl+C here cancels)"))
         elif event == "session-started":
-            print(_("Sesion iniciada."))
+            print(_("Signed in."))
 
     def ask(self, question, **data):
         if question != "redirect":

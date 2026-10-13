@@ -17,8 +17,8 @@ def track(name="Monster", identifier=1):
 
 class FakeLibrary:
     def __init__(self):
-        self.playlist = NS(id="owned", name="Favoritas", creator=NS(id=1))
-        self.other = NS(id="other", name="Otra biblioteca", creator=NS(id=2))
+        self.playlist = NS(id="owned", name="Favorites", creator=NS(id=1))
+        self.other = NS(id="other", name="Another library", creator=NS(id=2))
         self.catalog = NS(editable=lambda p: p.creator.id == 1)
         self.calls = []
         self.pending = {}
@@ -40,7 +40,7 @@ class FakeLibrary:
         result = {"playlists": [self.playlist, self.other], "tracks": [track()],
                   "search": [track("[red]Literal[/red]\x1b", 2)],
                   "search_playlists": self.playlist_pages.get(args[-1], []) if operation == "search_playlists" else [],
-                  "lyrics": ("", "[00:01.00]Linea uno\n[00:03.50]Linea dos", False),
+                  "lyrics": ("", "[00:01.00]Line one\n[00:03.50]Line two", False),
                   "cover": tuple(tuple((20, 90, 140) for _ in range(12)) for _ in range(12)),
                   "create": self.playlist, "add": [2]}.get(operation)
         future.set_result(result)
@@ -228,7 +228,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertIn(("create", ("Mi musica",)), self.library.calls)
             self.player.snapshot.return_value = PlaybackState(tracks=(app.tracks[0],), index=0,
-                                                              status="Reproduciendo", duration=178)
+                                                              status="Playing", duration=178)
             await pilot.click("#pause")
             self.player.send.assert_called_with("pause", None)
 
@@ -239,7 +239,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             badge = app.query_one("#quality", Static)
             # Before anything plays only the request is shown, never as a promise of what arrives.
-            self.assertEqual(str(badge.content), "Pedido: Hi-Res")
+            self.assertEqual(str(badge.content), "Requested: Hi-Res")
             hires, cd_only = track("Hi-Res", 7), track("CD", 8)
             hires.media_metadata_tags, cd_only.media_metadata_tags = ["LOSSLESS", "HIRES_LOSSLESS"], ["LOSSLESS"]
             hi = ("FLAC 24/96", "FLAC 24-bit / 96 kHz", "HI_RES_LOSSLESS")
@@ -252,11 +252,11 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause(0.3)
                 self.assertEqual(str(badge.content), text)
                 self.assertEqual(badge.has_class("degraded"), degraded)
-            self.assertIn("Recibido: FLAC 16-bit / 44.1 kHz", badge.tooltip)
-            self.assertIn("Esta pista existe en: Hi-Res", badge.tooltip)
-            self.assertIn("menos de lo que ofrece", badge.tooltip)
+            self.assertIn("Received: FLAC 16-bit / 44.1 kHz", badge.tooltip)
+            self.assertIn("This track is available in: Hi-Res", badge.tooltip)
+            self.assertIn("less than this track offers", badge.tooltip)
             app.playback.snapshot.return_value = PlaybackState()
-            self.assertEqual(app.query_one("#library").label.plain, "Favoritas ▾")
+            self.assertEqual(app.query_one("#library").label.plain, "Favorites ▾")
             await pilot.click("#library")
             await pilot.pause()
             self.assertIsInstance(app.screen, LibraryScreen)
@@ -310,7 +310,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("escape")
             await pilot.pause()
             self.assertTrue(await pilot.click("#tracks", offset=(2, 1)))
-            self.assertIn("Seleccionada", str(app.query_one("#action-target", Static).content))
+            self.assertIn("Selected", str(app.query_one("#action-target", Static).content))
             self.assertTrue(await pilot.click("#pause"))
             self.assertEqual(self.player.send.call_args.args[0], "play")
             self.assertTrue(await pilot.click("#next"))
@@ -322,7 +322,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_medium_density_rows_context_and_player_cover(self):
         app = self.make_app()
-        self.player.snapshot.return_value = PlaybackState(tracks=(track(),), index=0, status="Reproduciendo")
+        self.player.snapshot.return_value = PlaybackState(tracks=(track(),), index=0, status="Playing")
         async with app.run_test(size=(100, 28)) as pilot:
             await pilot.pause()
             app.update_player()
@@ -334,7 +334,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(table.ordered_rows[0].height, 2)
             self.assertEqual(table.get_row_at(0)[1].plain, "Monster\nSkillet · Awake")
             hint = app.query_one("#hint")
-            self.assertEqual(str(hint.content), "Favoritas · 1 canciones")
+            self.assertEqual(str(hint.content), "Favorites · 1 songs")
             tabs_end = max(tab.region.right for tab in app.query("#views Tab"))
             self.assertEqual(hint.region.y, app.query_one("#views").region.y)
             self.assertGreater(hint.region.x, tabs_end)
@@ -356,7 +356,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
         app = self.make_app()
         song = track()
         self.player.snapshot.return_value = PlaybackState(tracks=(song,), index=0,
-                                                          status="Reproduciendo", position=2,
+                                                          status="Playing", position=2,
                                                           duration=178, volume=60)
         async with app.run_test(size=(120, 38)) as pilot:
             await pilot.pause()
@@ -369,20 +369,20 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(app.query_one("#lyrics-scroll").size.height, 0)
             self.assertEqual(app.query_one("#progress", ProgressBar).progress, 2)
             self.assertEqual(app._active_line, 0)
-            self.assertIn("Linea uno", str(app.query_one("#lyrics-text", Static).content))
+            self.assertIn("Line one", str(app.query_one("#lyrics-text", Static).content))
             self.assertTrue(app.query_one("#cover", Static).content.spans)
             self.player.snapshot.return_value = PlaybackState(tracks=(song,), index=0,
-                                                              status="Reproduciendo", position=4,
+                                                              status="Playing", position=4,
                                                               duration=178)
             app.update_player()
             self.assertEqual(app._active_line, 1)
-            self.assertEqual(app.query_one("#up-next", Static).content, "Sin canciones en cola.")
+            self.assertEqual(app.query_one("#up-next", Static).content, "No songs in the queue.")
 
     async def test_queue_only_shows_upcoming_tracks_and_progress_click_seeks(self):
         app = self.make_app()
         songs = (track("Ahora", 1), track("Despues", 2), track("Al final", 3))
         self.player.snapshot.return_value = PlaybackState(tracks=songs, index=0,
-                                                          status="Reproduciendo", position=20,
+                                                          status="Playing", position=20,
                                                           duration=200)
         async with app.run_test(size=(120, 38)) as pilot:
             await pilot.pause()
@@ -392,7 +392,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Al final", upcoming)
             self.assertNotIn("Ahora", upcoming)
             self.assertFalse(list(app.query("#rail Button")))
-            self.assertEqual(app.query_one("#views").get_tab("queue-view").label.plain, "Cola · 2")
+            self.assertEqual(app.query_one("#views").get_tab("queue-view").label.plain, "Queue · 2")
             bar = app.query_one("#progress #bar")
             self.assertEqual(bar.size.width, app.query_one("#progress").size.width)
             wide_width = bar.size.width
@@ -424,27 +424,27 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.click("#repeat")
             self.player.send.assert_called_with("repeat", None)
             self.player.snapshot.return_value = PlaybackState(tracks=(song,), index=0,
-                                                              status="Reproduciendo", shuffle=True,
+                                                              status="Playing", shuffle=True,
                                                               repeat="all")
             app.update_player()
             self.assertEqual(app.query_one("#pause").label.plain, "❚❚")
             self.assertEqual(app.query_one("#repeat").label.plain, "↻")
             self.assertTrue(app.query_one("#repeat").has_class("active"))
             self.assertTrue(app.query_one("#shuffle").has_class("active"))
-            self.assertIn("Rep: cola", str(app.query_one("#mode", Static).content))
+            self.assertIn("Repeat: queue", str(app.query_one("#mode", Static).content))
 
     async def test_old_song_lyrics_cannot_replace_new_song(self):
         app = self.make_app()
         first, second = track("First", 21), track("Second", 22)
         self.library.media_pending = {21: None, 22: None}
         self.player.snapshot.return_value = PlaybackState(tracks=(first, second), index=0,
-                                                          status="Reproduciendo")
+                                                          status="Playing")
         async with app.run_test(size=(100, 32)) as pilot:
             await pilot.pause()
             app.update_player()
             await pilot.pause()
             self.player.snapshot.return_value = PlaybackState(tracks=(first, second), index=1,
-                                                              status="Reproduciendo")
+                                                              status="Playing")
             app.update_player()
             await pilot.pause()
             self.library.media_pending[22].set_result(("New lyrics", "", False))

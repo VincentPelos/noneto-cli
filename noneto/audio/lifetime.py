@@ -49,18 +49,18 @@ class PlayerJob:
         self.kernel.CloseHandle.restype = wintypes.BOOL
         self.handle = self.kernel.CreateJobObjectW(None, None)
         if not self.handle:
-            raise AppError(_("No se pudo preparar el cierre automatico del reproductor."))
+            raise AppError(_("Could not prepare the player's automatic shutdown."))
         limits = _ExtendedLimits()
         limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if not self.kernel.SetInformationJobObject(self.handle, 9, ctypes.byref(limits),
                                                    ctypes.sizeof(limits)):
             self.close()
-            raise AppError(_("No se pudo configurar el cierre automatico del reproductor."))
+            raise AppError(_("Could not configure the player's automatic shutdown."))
 
     def attach(self, process):
         # Popen retains the original Windows process handle, avoiding PID reuse.
         if not self.kernel.AssignProcessToJobObject(self.handle, int(process._handle)):
-            raise AppError(_("No se pudo vincular el reproductor al cierre de Noneto CLI."))
+            raise AppError(_("Could not tie the player to Noneto CLI's shutdown."))
 
     def close(self):
         if self.handle:
