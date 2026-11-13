@@ -3,7 +3,7 @@ import webbrowser
 
 from ..errors import AppError, error_label
 from ..i18n import _
-from .login_window import WindowUnavailable, clipboard_login, window_login
+from .login_window import ClipboardUnavailable, WindowUnavailable, clipboard_login, window_login
 
 
 class Terminal:
@@ -58,4 +58,8 @@ class Terminal:
             webbrowser.open(data["url"])
         except webbrowser.Error:
             pass
-        return clipboard_login(data["redirect"])
+        try:
+            return clipboard_login(data["redirect"])
+        except ClipboardUnavailable:
+            print(_("Could not read the clipboard. Paste the final URL to continue."))
+            return input(_("Redirect URL: ")).strip()

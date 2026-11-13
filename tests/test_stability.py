@@ -61,6 +61,9 @@ class StabilityTests(unittest.TestCase):
         player.play(r"C:\Temp\noneto-x\tmp1.mpd")
         player.command.assert_called_with("loadfile", r"C:\Temp\noneto-x\tmp1.mpd", "replace", -1,
                                           "access-references=yes")
+        player.stage(r"C:\Temp\noneto-x\tmp1.mpd")
+        player.command.assert_called_with("loadfile", r"C:\Temp\noneto-x\tmp1.mpd", "append", -1,
+                                          "access-references=yes")
         player.play("https://example.com/audio.flac")
         player.command.assert_called_with("loadfile", "https://example.com/audio.flac", "replace")
 

@@ -3,19 +3,18 @@ import logging
 import re
 import uuid
 import time
-import io
-import warnings
 
 import requests
 import tidalapi
-from PIL import Image
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from ..state.queue import SavedTrack
 from ..errors import AppError
 from ..i18n import _
 from ..security import https_url
 from ..diagnostics import emit, failure, request_target
+from .covers import COVER_SIZE, COVER_SIZES, CoverDownloader, cover_image
 
 API_HOSTS = frozenset({"auth.tidal.com", "api.tidal.com", "openapi.tidal.com"})
 # Tidal closed idle connections after 180-300 s (measured 2026-10-06). A request sent on a
@@ -77,16 +76,21 @@ def create_session(quality):
 
 
 def all_pages(fetch, limit=50, max_pages=1000):
+    return [item for page in iter_pages(fetch, limit, max_pages) for item in page]
+
+
+def iter_pages(fetch, limit=50, max_pages=1000):
     if limit < 1 or max_pages < 1:
         raise ValueError("Pagination limits must be positive")
-    result = []
+    offset = 0
     for _page in range(max_pages):
-        page = fetch(limit=limit, offset=len(result))
+        page = fetch(limit=limit, offset=offset)
         if len(page) > limit:
             raise AppError(_("TIDAL returned a larger page than requested."))
-        result.extend(page)
+        yield page
+        offset += len(page)
         if len(page) < limit:
-            return result
+            return
     raise AppError(_("Pagination exceeded the safety limit."))
 
 
@@ -102,6 +106,16 @@ def playlist_id(value):
 class Catalog:
     def __init__(self, session):
         self.session = session
+        self._restored_tracks = {}
+
+    def hydrate(self, track):
+        if isinstance(track, SavedTrack):
+            if track.id not in self._restored_tracks:
+                if len(self._restored_tracks) >= 128:
+                    self._restored_tracks.pop(next(iter(self._restored_tracks)))
+                self._restored_tracks[track.id] = self.session.track(track.id)
+            return self._restored_tracks[track.id]
+        return track
 
     def playlists(self):
         return all_pages(self.session.user.playlist_and_favorite_playlists)
@@ -111,6 +125,13 @@ class Catalog:
 
     def tracks(self, playlist):
         return all_pages(playlist.tracks, limit=100)
+
+    def pages(self, operation, *args):
+        if operation == "tracks":
+            return iter_pages(args[0].tracks, limit=100)
+        if operation == "playlists":
+            return iter_pages(self.session.user.playlist_and_favorite_playlists)
+        raise ValueError("Invalid paginated operation")
 
     def search(self, query, offset=0):
         return self._search(query, offset, tidalapi.Track, "tracks")
@@ -125,43 +146,29 @@ class Catalog:
         return self.session.search(query, models=[model], limit=50, offset=offset)[key]
 
     def lyrics(self, track):
-        data = track.lyrics()
+        data = self.hydrate(track).lyrics()
         return (data.text or "", data.subtitles or "", bool(data.right_to_left))
 
-    def cover(self, track):
-        data = self.media_cover(track, 80)
-        if data is None:
-            return None
-        with Image.open(io.BytesIO(data)) as picture:
-            pixels = picture.convert("RGB").resize((12, 12), Image.Resampling.BILINEAR)
-            return tuple(tuple(pixels.getpixel((x, y)) for x in range(12)) for y in range(12))
+    def artwork(self, track):
+        return cover_image(self.media_cover(track))
 
-    def media_cover(self, track, resolution=320):
+    def media_cover(self, track, resolution=COVER_SIZE):
+        downloader = CoverDownloader()
+        try:
+            return downloader.fetch(self.cover_request(track, resolution))
+        finally:
+            downloader.close()
+
+    def cover_request(self, track, resolution=COVER_SIZE):
+        """Obtain SDK metadata on its owner; pass only a validated URL to media IO."""
+        if type(resolution) is not int or resolution not in COVER_SIZES:
+            raise ValueError("Invalid cover resolution")
+        track = self.hydrate(track)
         album = getattr(track, "album", None)
         if album is None or not getattr(album, "cover", None):
             return None
         url = https_url(album.image(resolution), hosts={"resources.tidal.com"})
-        chunks, size = [], 0
-        with requests.Session() as connection:
-            connection.trust_env = False
-            with connection.get(url, stream=True, timeout=(5, 15), allow_redirects=False,
-                                verify=True) as response:
-                if response.status_code != 200 or not response.headers.get(
-                        "Content-Type", "").lower().startswith("image/jpeg"):
-                    raise AppError(_("Cover art not available."))
-                for chunk in response.iter_content(16384):
-                    size += len(chunk)
-                    if size > 1024 * 1024:
-                        raise AppError(_("Cover art too large."))
-                    chunks.append(chunk)
-        data = b"".join(chunks)
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(data)) as picture:
-                if picture.format != "JPEG" or max(picture.size) > resolution * 2:
-                    raise AppError(_("Invalid cover art."))
-                picture.load()
-        return data
+        return url, resolution
 
     def editable(self, playlist):
         return (str(getattr(getattr(playlist, "creator", None), "id", ""))

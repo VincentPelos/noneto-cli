@@ -1,3 +1,4 @@
+import os
 import queue
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ from noneto.services.tidal import all_pages, playlist_id
 
 
 class CoreTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Native Windows integration")
     def test_windows_credentials_are_encrypted_and_recoverable(self):
         session = SimpleNamespace(token_type="Bearer", access_token="test-access-token",
                                   refresh_token="test-refresh-token", is_pkce=False, expiry_time=None)
@@ -62,6 +64,13 @@ class CoreTests(unittest.TestCase):
         track.get_stream.return_value = stream
         with self.assertRaises(RuntimeError):
             stream_target(track, ".")
+
+    def test_real_mpv_starts_with_its_own_media_controls_disabled(self):
+        # Noneto publishes SMTC itself, so mpv starts without its session; mpv must accept the value.
+        with Player(extra_args=["--ao=null"], media_controls=False) as player:
+            self.assertIsNone(player.process.poll())
+            if os.name == "nt":
+                self.assertIs(player.command("get_property", "media-controls"), False)
 
     def test_real_mpv_named_pipe_load_pause_replace_and_eof(self):
         # Use a local silent WAV and the null audio output: no account or speakers.

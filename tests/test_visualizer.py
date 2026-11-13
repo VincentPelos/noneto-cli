@@ -1,3 +1,7 @@
+import json
+import os
+import shutil
+import sys
 from array import array
 from concurrent.futures import Future
 import math
@@ -14,10 +18,16 @@ import wave
 
 from noneto.audio.controller import PlaybackController, PlaybackState
 from noneto.audio.player import Player
+from noneto.audio.pulse_tap import PulseTap, sink_input_for
 from noneto.audio.spectrum import Spectrum
-from noneto.audio.tap import ProcessTap
+if os.name == "nt":
+    from noneto.audio.tap import ProcessTap
+from noneto.ui.themes import (CUSTOM_THEMES, ThemeSpec, VISUALIZER_STOPS, available_themes,
+                              load_user_themes, register_theme)
 from noneto.ui.tui import NonetoApp
-from noneto.ui.visualizer import CavaBars, Visualizer, bar_count, render_bars
+from noneto.ui.visualizer import (VISUALIZER_MODES_REGISTRY, CavaBars, Visualizer,
+                                  available_visualizer_modes, bar_count, register_visualizer_mode,
+                                  render_bars, render_mode)
 
 from tests.test_tui import FakeLibrary
 
@@ -81,6 +91,94 @@ class CavaBarsTests(unittest.TestCase):
     def test_thin_bars_fill_from_the_bottom(self):
         self.assertEqual(render_bars([1.0, 0.5, 0.0], width=6, rows=2), ["█     ", "█ █   "])
         self.assertEqual(bar_count(80), 40)
+
+    def test_all_builtin_modes_render_exact_dimensions(self):
+        heights = [0.9, 0.5, 0.2, 0.0]
+        peaks = [1.0, 0.75, 0.4, 0.0]
+        self.assertEqual(available_visualizer_modes(), ("classic", "braille", "mirror", "flame"))
+        for mode in available_visualizer_modes():
+            lines = render_mode(mode, heights, peaks, width=8, rows=4)
+            self.assertEqual(len(lines), 4, mode)
+            self.assertTrue(all(len(line) == 8 for line in lines), mode)
+            self.assertTrue(any(line.strip(" ⠀") for line in lines), mode)
+
+    def test_mirror_grows_up_and_down_from_the_middle_with_braille_dots(self):
+        full = render_mode("mirror", [1.0, 1.0, 0.0], [], width=6, rows=4)
+        self.assertEqual([line[0] for line in full], ["⣿"] * 4)
+        quiet = [line[2] for line in render_mode("mirror", [0.3, 0.3, 0.0], [], width=6, rows=4)]
+        # Symmetric: the rows above the middle mirror the rows below it, and the edges stay empty.
+        self.assertEqual(quiet[0], "⠀")
+        self.assertEqual(quiet[-1], "⠀")
+        self.assertNotEqual(quiet[1], "⠀")
+        silent = render_mode("mirror", [0.0] * 3, [], width=6, rows=4)
+        self.assertTrue(all(set(line) <= {" ", "⠀"} for line in silent))
+
+    def test_flame_is_solid_below_and_shaded_at_the_tip(self):
+        lines = render_mode("flame", [1.0, 0.5, 0.0], [], width=6, rows=4)
+        self.assertEqual([line[0] for line in lines], ["▒", "▓", "█", "█"])
+        self.assertEqual([line[2] for line in lines], [" ", " ", "▒", "▓"])
+        self.assertTrue(all(line[4] == " " for line in lines))
+
+
+class ExtensionApiTests(unittest.TestCase):
+    def test_register_custom_visualizer_mode_and_theme_spec(self):
+        import json as _json
+        import noneto.ui.themes as themes_mod
+        import noneto.ui.visualizer as vis_mod
+
+        orig_themes = themes_mod.THEMES
+        orig_custom = dict(CUSTOM_THEMES)
+        orig_stops = dict(VISUALIZER_STOPS)
+        orig_modes = vis_mod.VISUALIZER_MODES
+        orig_reg = dict(VISUALIZER_MODES_REGISTRY)
+        try:
+            @register_visualizer_mode("stars")
+            def _stars(heights, width, rows):
+                return [("*" * len(heights))[:width].ljust(width) for _ in range(rows)]
+
+            self.assertIn("stars", available_visualizer_modes())
+            self.assertEqual(render_mode("stars", [0.5, 0.8], [0.6, 0.9], 4, 2), ["**  ", "**  "])
+
+            spec = ThemeSpec(
+                name="cyber-amber",
+                primary="#ffb000",
+                background="#0d0a00",
+                foreground="#ffe082",
+                stops=("#ff6f00", "#ffb000", "#ffe082"),
+            )
+            register_theme(spec)
+            self.assertIn("cyber-amber", available_themes())
+            self.assertEqual(VISUALIZER_STOPS["cyber-amber"][0], "#ff6f00")
+
+            with tempfile.TemporaryDirectory() as directory:
+                theme_file = Path(directory) / "oceanic.json"
+                theme_file.write_text(_json.dumps({
+                    "name": "oceanic-deep",
+                    "primary": "#00bcd4",
+                    "background": "#051622",
+                    "foreground": "#e0f7fa",
+                    "stops": ["#006064", "#00bcd4", "#80deea"],
+                }), encoding="utf-8")
+                (Path(directory) / "invalid.json").write_text("{bad", encoding="utf-8")
+                loaded = load_user_themes(directory)
+                self.assertEqual(loaded, ("oceanic-deep",))
+                self.assertIn("oceanic-deep", available_themes())
+
+            with self.assertRaises(ValueError):
+                ThemeSpec(name="Bad Name!", primary="#ffffff", background="#000000")
+            with self.assertRaises(ValueError):
+                ThemeSpec(name="bad-color", primary="red", background="#000000")
+            with self.assertRaises(ValueError):
+                register_visualizer_mode("Bad Mode!", lambda h, w, r: [])
+        finally:
+            themes_mod.THEMES = orig_themes
+            CUSTOM_THEMES.clear()
+            CUSTOM_THEMES.update(orig_custom)
+            VISUALIZER_STOPS.clear()
+            VISUALIZER_STOPS.update(orig_stops)
+            vis_mod.VISUALIZER_MODES = orig_modes
+            VISUALIZER_MODES_REGISTRY.clear()
+            VISUALIZER_MODES_REGISTRY.update(orig_reg)
 
 
 class FakeTap:
@@ -156,14 +254,19 @@ class ControllerTapTests(unittest.TestCase):
         self.assertTrue(taps[1].stopped)
 
 
+@unittest.skipUnless(os.name == "nt", "Native Windows integration")
 class ProcessTapTests(unittest.TestCase):
     def test_captures_only_what_mpv_plays(self):
-        """Real device, inaudible: mpv volume 1 is about -120 dB, still visible in float32."""
+        """Real device, faint: volume 10 is about -60 dB, above endpoint noise gates.
+
+        At volume 1 (~-120 dB), some Windows audio paths return digital silence even
+        though process loopback works. Keep the signal quiet but measurable.
+        """
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "tone.wav"
             write_sine_wav(source)
-            with Player(extra_args=["--volume=1"]) as player:
-                player.command("set_property", "volume", 1)
+            with Player() as player:
+                player.command("set_property", "volume", 10)
                 tap = ProcessTap(player.process.pid).start()
                 try:
                     player.play(source)
@@ -182,6 +285,48 @@ class ProcessTapTests(unittest.TestCase):
                     self.assertAlmostEqual(bands.index(max(bands)), band_of(1000, 40), delta=1)
                 finally:
                     tap.stop()
+
+
+class PulseSinkInputTests(unittest.TestCase):
+    def test_matches_only_the_mpv_pid(self):
+        listing = json.dumps([
+            {"index": 3, "properties": {"application.process.id": "100", "application.name": "other"}},
+            {"index": 7, "properties": {"application.process.id": "4242", "application.name": "mpv"}},
+        ])
+        self.assertEqual(sink_input_for(listing, 4242), 7)
+        self.assertIsNone(sink_input_for(listing, 999))
+        self.assertIsNone(sink_input_for("[]", 4242))
+
+
+@unittest.skipUnless(sys.platform.startswith("linux") and shutil.which("parec") and shutil.which("pactl"),
+                     "Linux with a PulseAudio-compatible server")
+class PulseTapTests(unittest.TestCase):
+    def test_captures_only_what_mpv_plays(self):
+        """Real server, faint (~-48 dBFS): monitors read after mpv's volume and the WSLg server
+        returned zeros at volume 1 and 5, so this tone stays briefly audible."""
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "tone.wav"
+            write_sine_wav(source)
+            with Player(extra_args=["--volume=20", "--loop-file=inf"]) as player:
+                player.command("set_property", "volume", 20)
+                tap = PulseTap(player.process.pid).start()
+                try:
+                    player.play(source)
+                    deadline = time.monotonic() + 8
+                    peak = 0.0
+                    while time.monotonic() < deadline and not tap.failed.is_set():
+                        time.sleep(0.1)
+                        data = array("f", tap.samples())
+                        peak = max((abs(value) for value in data), default=0.0)
+                        if peak and len(data) == 4096 * 2:
+                            break
+                    if tap.failed.is_set() or not peak:
+                        self.skipTest("PulseAudio monitor unavailable on this machine")
+                    bands = Spectrum(RATE).bands(tap.samples(), 40)
+                    self.assertAlmostEqual(bands.index(max(bands)), band_of(1000, 40), delta=1)
+                finally:
+                    tap.stop()
+                self.assertFalse(tap._thread.is_alive())
 
 
 class VisualizerTuiTests(unittest.IsolatedAsyncioTestCase):
@@ -216,9 +361,11 @@ class VisualizerTuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(visualizer.running)
             player.send.assert_called_with("visualizer", False)
 
-    async def test_bars_follow_the_theme_gradient(self):
+    async def test_bars_follow_the_theme_gradient_and_ctrl_v_or_click_cycles_modes(self):
+        chosen_modes = []
         player = Mock(snapshot=Mock(return_value=PlaybackState()), bands=Mock(return_value=None))
-        app = NonetoApp(FakeLibrary(), player, theme="dracula")
+        app = NonetoApp(FakeLibrary(), player, theme="dracula", visualizer_mode="classic",
+                        on_visualizer_mode=chosen_modes.append)
         async with app.run_test(size=(120, 38)) as pilot:
             await pilot.pause()
             visualizer = app.query_one(Visualizer)
@@ -227,9 +374,20 @@ class VisualizerTuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(styles[0].color.triplet.hex, "#8be9fd")
             self.assertEqual(styles[-1].color.triplet.hex, "#bd93f9")
             self.assertEqual(len({style.color.triplet.hex for style in styles}), 6)
-            app.theme = "nord"
+            app.theme = "kanagawa"
             await pilot.pause()
-            self.assertEqual(visualizer.bar_styles(6)[0].color.triplet.hex, "#5e81ac")
+            self.assertEqual(visualizer.bar_styles(6)[0].color.triplet.hex, "#7e9cd8")
             visualizer._lines = render_bars([1.0] * 6, 11, 1)
             strip = visualizer.render_line(0)
             self.assertEqual(strip.cell_length, visualizer.content_size.width)
+
+            await pilot.press("ctrl+g")
+            await pilot.pause()
+            self.assertEqual(app.visualizer_mode, "braille")
+            self.assertEqual(visualizer.mode, "braille")
+            await pilot.click("#--content-tab-lyrics-view")
+            await pilot.pause()
+            await pilot.click("#visualizer")
+            await pilot.pause()
+            self.assertEqual(app.visualizer_mode, "mirror")
+            self.assertEqual(chosen_modes, ["braille", "mirror"])

@@ -1,1 +1,1 @@
-"""OAuth lifecycle and Windows-encrypted session storage."""
+"""OAuth lifecycle and native secure session storage."""

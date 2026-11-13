@@ -4,6 +4,7 @@ Login uses PKCE: TIDAL only serves Hi-Res FLAC (up to 24-bit / 192 kHz) to PKCE 
 Device-code sessions stored by earlier versions are replaced by a new PKCE login.
 The UI shows the login page and returns the redirect URL it reaches; it is validated here.
 """
+import os
 from urllib.parse import urlencode
 
 import requests
@@ -12,11 +13,11 @@ from tidalapi.exceptions import AuthenticationError
 from ..errors import AppError
 from ..i18n import _
 from ..security import https_url, pkce_code
-from .storage import read_session, save_session, session_path
+from .storage import read_session, save_session, session_path, has_session, delete_session
 
 
 def login(session, notify, ask):
-    if session_path().exists():
+    if (session_path().exists() if os.name == "nt" else has_session()):
         try:
             restored = session.load_oauth_session(**read_session())
         except (requests.ConnectionError, requests.Timeout):
@@ -49,4 +50,4 @@ def login(session, notify, ask):
 
 
 def logout():
-    session_path().unlink(missing_ok=True)
+    delete_session()

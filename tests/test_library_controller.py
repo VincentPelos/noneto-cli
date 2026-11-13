@@ -367,6 +367,7 @@ class LibraryTests(unittest.TestCase):
         library = Library(NS(playlists=read), persist)
         try:
             first = library.submit("playlists")
+            wait_for(lambda: bool(called))  # The first read is already in flight.
             second = library.resolve(lambda *_: called.append("stream"), None, None)
             wait_for(lambda: bool(called))
             self.assertEqual(called, ["read"])
@@ -419,5 +420,5 @@ class LibraryTests(unittest.TestCase):
         album = NS(cover="present", image=lambda size: "https://example.org/image.jpg")
         with self.assertRaises(AppError), __import__("unittest.mock").mock.patch(
                 "noneto.services.tidal.requests.Session") as connection:
-            catalog.cover(NS(album=album))
+            catalog.artwork(NS(album=album))
         connection.assert_not_called()

@@ -9,6 +9,8 @@ DEFAULT_LANGUAGE = "en"
 _language = DEFAULT_LANGUAGE
 
 ES = {
+    "This release supports Windows only. Linux support is still in development.": "Esta versión solo admite Windows. El soporte para Linux sigue en desarrollo.",
+    "Could not read the clipboard. Paste the final URL to continue.": "No se pudo leer el portapapeles. Pega la direccion final para continuar.",
     "Diagnostics: {path}": "Diagnostico: {path}",
     "Could not open the diagnostics file.": "No se pudo abrir el archivo de diagnostico.",
     "Local session deleted.": "Sesion local eliminada.",
@@ -102,6 +104,12 @@ ES = {
     "Next": "Siguiente",
     "Theme": "Tema",
     "Theme: {name} · Ctrl+T to change": "Tema: {name} · Ctrl+T para cambiar",
+    "Aura": "Aura",
+    "Track aura: {name} · Ctrl+G to change": "Aura de pista: {name} · Ctrl+G para cambiar",
+    "Classic": "Clásica",
+    "Braille": "Braille",
+    "Mirror": "Espejo",
+    "Flame": "Llama",
     "User": "Usuario",
     "Library ▾": "Biblioteca ▾",
     "{name}'s playlists · Ctrl+L": "Playlists de {name} · Ctrl+L",
@@ -163,7 +171,14 @@ ES = {
     "Waiting for audio.": "Esperando el audio.",
     "Received: {received}.": "Recibido: {received}.",
     "This track is available in: {tier}.": "Esta pista existe en: {tier}.",
-    "TIDAL delivered less than this track offers.": "TIDAL entregó menos de lo que ofrece esta pista."
+    "TIDAL delivered less than this track offers.": "TIDAL entregó menos de lo que ofrece esta pista.",
+    "mpv is missing. Install it with your system package manager.": "Falta mpv. Instalalo con el gestor de paquetes de tu sistema.",
+    "No secure credential store is available. Unlock your system keyring.": "No hay un almacen seguro de credenciales disponible. Desbloquea el llavero del sistema.",
+    "Sign in to TIDAL in your browser and paste the final URL here:": "Inicia sesion en TIDAL desde tu navegador y pega la URL final aqui:",
+    "Redirect URL: ": "URL de redireccion: ",
+    "Cover": "Carátula",
+    "Lyrics tab: cover only · Ctrl+O to change": "Letras: solo carátula · Ctrl+O para cambiar",
+    "Lyrics tab: cover and lyrics · Ctrl+O to change": "Letras: carátula y letras · Ctrl+O para cambiar"
 }
 
 

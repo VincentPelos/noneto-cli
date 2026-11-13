@@ -1,19 +1,18 @@
 """mpv JSON IPC transport: bounded messages, acknowledgements and explicit failure."""
-import ctypes
-from ctypes import wintypes
 import json
-import msvcrt
 from pathlib import Path
 import queue
 import subprocess
 import threading
 import time
-import uuid
+import os
+import shutil
 
 from ..errors import AppError
 from ..i18n import _
 from ..diagnostics import emit, failure, mpv_message
-from .lifetime import PlayerJob
+if os.name == "nt":
+    from .lifetime import PlayerJob
 from .mpv_install import mpv_dir
 
 MAX_FRAME = 1024 * 1024
@@ -21,10 +20,15 @@ COMMAND_TIMEOUT = 5
 
 
 def find_mpv():
-    local = mpv_dir() / "mpv.exe"
-    if not local.is_file():
-        raise AppError(_("mpv is missing. Install it with: noneto --install-mpv"))
-    return str(local)
+    if os.name == "nt":
+        local = mpv_dir() / "mpv.exe"
+        if not local.is_file():
+            raise AppError(_("mpv is missing. Install it with: noneto --install-mpv"))
+        return str(local)
+    executable = shutil.which("mpv")
+    if executable is None:
+        raise AppError(_("mpv is missing. Install it with your system package manager."))
+    return executable
 
 
 class Player:
@@ -39,35 +43,34 @@ class Player:
         self.pipe = None
         self.thread = None
         self._job = None
-        pipe_name = rf"\\.\pipe\noneto-{uuid.uuid4().hex}"
-        self.process = subprocess.Popen([
-            str(Path(executable or find_mpv()).resolve()), *extra_args,
-            "--no-config", "--idle=yes", "--no-video", "--audio-display=no",
-            "--terminal=no", "--volume=60", "--load-scripts=no", "--ytdl=no",
-            "--load-unsafe-playlists=no", "--access-references=no", "--tls-verify=yes",
-            "--network-timeout=30",
-            f"--media-controls={'yes' if media_controls else "off"}",
-            "--demuxer-lavf-o=protocol_whitelist=[file,https,tls,tcp]",
-            f"--input-ipc-server={pipe_name}",
-        ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-           stderr=subprocess.DEVNULL, creationflags=subprocess.CREATE_NO_WINDOW)
+        self._wakeup = None
+        if os.name == "nt":
+            from .ipc_windows import WindowsIPC
+            self._transport = WindowsIPC()
+        else:
+            from .ipc_unix import UnixIPC
+            self._transport = UnixIPC()
+        self.process = None
         try:
+            self.process = subprocess.Popen([
+                str(Path(executable or find_mpv()).resolve()), *extra_args,
+                "--no-config", "--idle=yes", "--no-video", "--audio-display=no",
+                "--terminal=no", "--volume=60", "--load-scripts=no", "--ytdl=no",
+                "--load-unsafe-playlists=no", "--access-references=no", "--tls-verify=yes",
+                "--network-timeout=30",
+                *([f"--media-controls={'yes' if media_controls else 'no'}"] if os.name == "nt" else []),
+                "--prefetch-playlist=yes",
+                "--demuxer-lavf-o=protocol_whitelist=[file,https,tls,tcp]",
+                self._transport.argument,
+            ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+               stderr=subprocess.DEVNULL, **self._transport.spawn_options)
             # mpv is idle: bind its lifetime before IPC can load any audio.
             # Abrupt terminal closure may bypass close()/finally entirely.
-            self._job = PlayerJob()
-            self._job.attach(self.process)
-            deadline = time.monotonic() + 10
-            while time.monotonic() < deadline:
-                if self.process.poll() is not None:
-                    raise AppError(_("mpv could not start."))
-                try:
-                    self.pipe = open(pipe_name, "r+b", buffering=0)
-                    break
-                except OSError:
-                    time.sleep(0.05)
-            if self.pipe is None:
-                raise AppError(_("mpv did not respond within 10 seconds."))
-            self._configure_pipe()
+            if os.name == "nt":
+                self._job = PlayerJob()
+                self._job.attach(self.process)
+            self._transport.connect(self.process)
+            self.pipe = self._transport.pipe
             self.thread = threading.Thread(target=self._listen, daemon=True, name="mpv-ipc")
             self.thread.start()
             self.command("get_property", "mpv-version")
@@ -75,23 +78,6 @@ class Player:
         except BaseException:
             self.close()
             raise
-
-    def _configure_pipe(self):
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        self._handle = msvcrt.get_osfhandle(self.pipe.fileno())
-        get_pid = kernel.GetNamedPipeServerProcessId
-        get_pid.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.ULONG)]
-        get_pid.restype = wintypes.BOOL
-        pid = wintypes.ULONG()
-        if not get_pid(self._handle, ctypes.byref(pid)) or pid.value != self.process.pid:
-            raise AppError(_("Could not verify the player channel."))
-        set_state = kernel.SetNamedPipeHandleState
-        set_state.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD),
-                              ctypes.c_void_p, ctypes.c_void_p]
-        set_state.restype = wintypes.BOOL
-        mode = wintypes.DWORD(1)  # PIPE_NOWAIT: a hung peer must not block writes forever.
-        if not set_state(self._handle, ctypes.byref(mode), None, None):
-            raise AppError(_("Could not configure the player channel."))
 
     def _receive(self, message):
         if not isinstance(message, dict):
@@ -108,23 +94,20 @@ class Player:
                     pending[0].set()
         if message.get("event") in {"start-file", "file-loaded", "end-file", "shutdown"}:
             self.events.put_nowait(message)
+            if self._wakeup is not None:
+                self._wakeup()
+
+    def set_wakeup(self, wakeup):
+        self._wakeup = wakeup
+        wakeup()  # Includes events already delivered before attachment.
 
     def _listen(self):
-        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-        peek = kernel.PeekNamedPipe
-        peek.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD,
-                         ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p]
-        peek.restype = wintypes.BOOL
         buffer = b""
         try:
             while not self._closing.is_set() and self.process.poll() is None:
-                available = wintypes.DWORD()
-                if not peek(self._handle, None, 0, None, ctypes.byref(available), None):
-                    break
-                if not available.value:
-                    self._closing.wait(0.02)
+                chunk = self._transport.read(65536)
+                if chunk is None:
                     continue
-                chunk = self.pipe.read(min(available.value, 65536))
                 if not chunk:
                     break
                 buffer += chunk
@@ -139,6 +122,8 @@ class Player:
         finally:
             if not self._closing.is_set():
                 self.failed.set()
+                if self._wakeup is not None:
+                    self._wakeup()
             with self._lock:
                 for ready, _response in self._pending.values():
                     ready.set()
@@ -164,12 +149,7 @@ class Player:
             while offset < len(message):
                 if time.monotonic() >= deadline:
                     raise AppError(_("mpv did not answer the command in time."))
-                try:
-                    count = self.pipe.write(message[offset:])
-                except OSError as error:
-                    if getattr(error, "winerror", None) != 232:  # ERROR_NO_DATA: pipe busy
-                        raise
-                    count = 0
+                count = self._transport.write(message[offset:], timeout=max(0, deadline - time.monotonic()))
                 if count:
                     offset += count
                 else:
@@ -207,10 +187,21 @@ class Player:
         else:
             self.command("loadfile", str(target), "replace")
 
+    def stage(self, target):
+        """Append one validated target so mpv can open it before the current EOF."""
+        self.clear_next()
+        if str(target).endswith(".mpd"):
+            self.command("loadfile", str(target), "append", -1, "access-references=yes")
+        else:
+            self.command("loadfile", str(target), "append")
+
+    def clear_next(self):
+        self.command("playlist-clear")
+
     def close(self):
         self._closing.set()
         try:
-            if self.process.poll() is None:
+            if self.process is not None and self.process.poll() is None:
                 self.process.terminate()
                 try:
                     self.process.wait(timeout=5)
@@ -222,8 +213,7 @@ class Player:
                 self._job.close()
             if self.thread:
                 self.thread.join(timeout=2)
-            if self.pipe:
-                self.pipe.close()
+            self._transport.close()
 
     def __enter__(self):
         return self

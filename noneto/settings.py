@@ -1,29 +1,36 @@
-"""Interface preferences (only the theme for now) in %LOCALAPPDATA%/Noneto/settings.json.
+"""Non-secret interface preferences in the platform config directory.
 
 Nothing secret lives here. Unknown keys and invalid values are dropped on read.
 """
 import json
-import os
 from pathlib import Path
+from .platform.paths import config_dir
 import tempfile
 
 MAX_SETTINGS_BYTES = 4096
 
 
 def settings_path():
-    return Path(os.environ["LOCALAPPDATA"]) / "Noneto" / "settings.json"
+    return config_dir() / "settings.json"
 
 
-def load_settings(allowed_themes, path=None):
+def load_settings(allowed_themes, path=None, allowed_visualizer_modes=None, allowed_lyrics_layouts=None):
     path = Path(path) if path is not None else settings_path()
     try:
         with path.open("rb") as source:
             data = json.loads(source.read(MAX_SETTINGS_BYTES + 1)[:MAX_SETTINGS_BYTES])
     except (OSError, ValueError):
         return {}
-    if not isinstance(data, dict) or data.get("theme") not in allowed_themes:
+    if not isinstance(data, dict):
         return {}
-    return {"theme": data["theme"]}
+    result = {}
+    if data.get("theme") in allowed_themes:
+        result["theme"] = data["theme"]
+    if allowed_visualizer_modes is not None and data.get("visualizer_mode") in allowed_visualizer_modes:
+        result["visualizer_mode"] = data["visualizer_mode"]
+    if allowed_lyrics_layouts is not None and data.get("lyrics_layout") in allowed_lyrics_layouts:
+        result["lyrics_layout"] = data["lyrics_layout"]
+    return result
 
 
 def save_settings(settings, path=None):

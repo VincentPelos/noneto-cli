@@ -2,6 +2,7 @@
 import hashlib
 import os
 from pathlib import Path
+from ..platform.paths import data_dir
 import shutil
 import subprocess
 import tempfile
@@ -19,11 +20,14 @@ MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 
 
 def mpv_dir():
-    return Path(os.environ["LOCALAPPDATA"]) / "Noneto" / "mpv"
+    return data_dir() / "mpv"
 
 
 def install_mpv():
     """Return the installed mpv.exe, downloading it first when missing. Never uses mpv from PATH."""
+    if os.name != "nt":
+        from .player import find_mpv
+        return Path(find_mpv())
     executable = mpv_dir() / "mpv.exe"
     if executable.is_file():
         return executable

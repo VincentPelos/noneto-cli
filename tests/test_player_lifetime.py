@@ -1,3 +1,4 @@
+import os
 import ctypes
 from ctypes import wintypes
 from pathlib import Path
@@ -30,6 +31,7 @@ else:
 """
 
 
+@unittest.skipUnless(os.name == "nt", "Native Windows integration")
 class PlayerLifetimeTests(unittest.TestCase):
     def check_owner_exit(self, mode):
         kernel = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -100,3 +102,55 @@ class PlayerLifetimeTests(unittest.TestCase):
                 Player(extra_args=['--ao=null'])
         self.assertEqual(len(processes), 1)
         self.assertIsNotNone(processes[0].poll())
+
+
+@unittest.skipUnless(os.name == "posix", "Unix inherited IPC lifetime")
+class UnixPlayerLifetimeTests(unittest.TestCase):
+    def check_owner_exit(self, mode):
+        with tempfile.TemporaryDirectory() as directory:
+            path, ready = Path(directory) / "silence.wav", Path(directory) / "ready.txt"
+            with wave.open(str(path), "wb") as wav:
+                wav.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+                wav.writeframes(b"\0\0" * 8000 * 60)
+            owner = subprocess.Popen([sys.executable, "-c", CHILD, str(path), str(ready)],
+                                     stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            pid = None
+            try:
+                deadline = time.monotonic() + 10
+                while not ready.exists() and time.monotonic() < deadline:
+                    self.assertIsNone(owner.poll(), "Owner exited before mpv loaded")
+                    time.sleep(0.025)
+                self.assertTrue(ready.exists())
+                pid = int(ready.read_text())
+                if mode == "kill":
+                    owner.kill()
+                else:
+                    owner.stdin.write((mode + "\n").encode())
+                    owner.stdin.flush()
+                owner.wait(10)
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    result = subprocess.run(["ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True)
+                    if not result.stdout.strip() or result.stdout.strip().startswith("Z"):
+                        return
+                    time.sleep(0.025)
+                self.fail("mpv survived closure of its owner's inherited socket")
+            finally:
+                if owner.poll() is None:
+                    owner.kill()
+                owner.wait(5)
+                owner.stdin.close()
+                if pid is not None:
+                    try:
+                        os.kill(pid, 9)
+                    except ProcessLookupError:
+                        pass
+
+    def test_forced_parent_exit_closes_mpv(self):
+        self.check_owner_exit("kill")
+
+    def test_exit_without_finally_closes_mpv(self):
+        self.check_owner_exit("abrupt")
+
+    def test_normal_close_closes_mpv(self):
+        self.check_owner_exit("normal")

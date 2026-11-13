@@ -1,3 +1,4 @@
+import os
 import contextlib
 import io
 import json
@@ -94,7 +95,7 @@ class SecurityTests(unittest.TestCase):
     def test_untrusted_authorization_link_is_never_shown(self):
         session = self.pkce_session("https://login.tidal.com.evil.test/authorize")
         notify, ask = Mock(), Mock()
-        with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)):
+        with patch("noneto.auth.service.has_session", return_value=False), patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)):
             with self.assertRaises(AppError):
                 login(session, notify, ask)
         notify.assert_not_called()
@@ -104,7 +105,7 @@ class SecurityTests(unittest.TestCase):
         session = self.pkce_session()
         ask = Mock(return_value="  https://tidal.com/android/login/auth?code=abc-123_X&lang=es  ")
         notify = Mock()
-        with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)), \
+        with patch("noneto.auth.service.has_session", return_value=False), patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)), \
              patch("noneto.auth.service.save_session") as save:
             login(session, notify, ask)
         ask.assert_called_once_with("redirect", url="https://login.tidal.com/authorize?client_id=x",
@@ -118,7 +119,7 @@ class SecurityTests(unittest.TestCase):
         for answer in ("", None, "https://evil.test/android/login/auth?code=a",
                        "https://tidal.com/android/login/auth?error=access_denied"):
             session = self.pkce_session()
-            with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)):
+            with patch("noneto.auth.service.has_session", return_value=False), patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)):
                 with self.assertRaises(AppError):
                     login(session, Mock(), Mock(return_value=answer))
             session.pkce_get_auth_token.assert_not_called()
@@ -126,7 +127,7 @@ class SecurityTests(unittest.TestCase):
     def test_rejected_code_is_reported_without_its_value(self):
         session = self.pkce_session()
         session.pkce_get_auth_token.side_effect = requests.HTTPError("code=secret")
-        with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)):
+        with patch("noneto.auth.service.has_session", return_value=False), patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: False)):
             with self.assertRaises(AppError) as raised:
                 login(session, Mock(), Mock(return_value="https://tidal.com/android/login/auth?code=secret"))
         self.assertNotIn("secret", str(raised.exception))
@@ -150,7 +151,7 @@ class SecurityTests(unittest.TestCase):
             session.load_oauth_session.side_effect = error
             session.load_oauth_session.return_value = True
             notify = Mock()
-            with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: True)), \
+            with patch("noneto.auth.service.has_session", return_value=True), patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: True)), \
                  patch("noneto.auth.service.read_session", return_value={}), \
                  patch("noneto.auth.service.save_session"):
                 login(session, notify, Mock(return_value="https://tidal.com/android/login/auth?code=a"))
@@ -160,12 +161,13 @@ class SecurityTests(unittest.TestCase):
     def test_network_error_while_restoring_does_not_start_a_login(self):
         session = self.pkce_session()
         session.load_oauth_session.side_effect = requests.Timeout("secret")
-        with patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: True)), \
+        with patch("noneto.auth.service.has_session", return_value=True), patch("noneto.auth.service.session_path", return_value=Mock(exists=lambda: True)), \
              patch("noneto.auth.service.read_session", return_value={}):
             with self.assertRaises(requests.Timeout):
                 login(session, Mock(), Mock())
         session.pkce_login_url.assert_not_called()
 
+    @unittest.skipUnless(os.name == "nt", "Native Windows integration")
     def test_stored_session_schema_and_corruption(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "session.bin"
@@ -174,6 +176,7 @@ class SecurityTests(unittest.TestCase):
                 with self.assertRaises((OSError, ValueError)):
                     read_session(path)
 
+    @unittest.skipUnless(os.name == "nt", "Native Windows integration")
     def test_failed_atomic_save_preserves_previous_ciphertext_and_cleans_temp(self):
         session = SimpleNamespace(token_type="Bearer", access_token="first", refresh_token="test", is_pkce=False, expiry_time=None)
         with tempfile.TemporaryDirectory() as directory:
@@ -197,11 +200,12 @@ class SecurityTests(unittest.TestCase):
              patch("noneto.app.configure", return_value=Path("test-diagnostics.log")), \
              patch("noneto.app.emit"), patch("noneto.app.failure"), \
              contextlib.redirect_stdout(output):
-            self.assertEqual(app.main([]), 1)
+            self.assertEqual(app.main(["--lang", "en"]), 1)
         self.assertNotIn("TOP_SECRET", output.getvalue())
         self.assertIn("RuntimeError", output.getvalue())
 
 
+@unittest.skipUnless(os.name == "nt", "Windows pinned mpv installer")
 class MpvInstallTests(unittest.TestCase):
     def test_download_with_wrong_hash_installs_nothing(self):
         response = Mock(status_code=200)

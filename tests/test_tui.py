@@ -3,11 +3,16 @@ from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import Mock
 
+from PIL import Image
+from textual.geometry import Region
 from textual.widgets import DataTable, Input, ListView, ProgressBar, Static
 
 from noneto.audio.controller import PlaybackState
 from noneto.ui.themes import THEMES
-from noneto.ui.tui import NonetoApp, CreatePlaylist, ChoosePlaylist, LibraryScreen, lyric_lines, cover_text
+from noneto.ui.cover import cover_text
+from noneto.ui.dialogs import ChoosePlaylist, CreatePlaylist, LibraryScreen
+from noneto.ui.lyrics import LyricsPanel, lyric_lines
+from noneto.ui.tui import NonetoApp
 
 
 def track(name="Monster", identifier=1):
@@ -29,19 +34,22 @@ class FakeLibrary:
         self.calls.append((operation, args))
         future = Future()
         if operation == "search" and args[0] in self.pending:
+            future.set_running_or_notify_cancel()  # The delayed response models in-flight HTTP.
             self.pending[args[0]] = future
             return future
         if operation == "search_playlists" and ("playlists", args[0]) in self.pending:
+            future.set_running_or_notify_cancel()
             self.pending[("playlists", args[0])] = future
             return future
         if operation == "lyrics" and args[0].id in self.media_pending:
+            future.set_running_or_notify_cancel()
             self.media_pending[args[0].id] = future
             return future
         result = {"playlists": [self.playlist, self.other], "tracks": [track()],
                   "search": [track("[red]Literal[/red]\x1b", 2)],
                   "search_playlists": self.playlist_pages.get(args[-1], []) if operation == "search_playlists" else [],
                   "lyrics": ("", "[00:01.00]Line one\n[00:03.50]Line two", False),
-                  "cover": tuple(tuple((20, 90, 140) for _ in range(12)) for _ in range(12)),
+                  "artwork": Image.new("RGB", (320, 320), (20, 90, 140)),
                   "create": self.playlist, "add": [2]}.get(operation)
         future.set_result(result)
         return future
@@ -180,10 +188,10 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
     async def test_ctrl_t_cycles_the_offered_themes_and_reports_the_choice(self):
         chosen = []
         player = Mock(snapshot=Mock(return_value=PlaybackState()))
-        app = NonetoApp(FakeLibrary(), player, theme="rose-pine-dawn", on_theme=chosen.append)
+        app = NonetoApp(FakeLibrary(), player, theme=THEMES[-1], on_theme=chosen.append)
         async with app.run_test(size=(100, 32)) as pilot:
             await pilot.pause()
-            self.assertEqual(app.theme, "rose-pine-dawn")
+            self.assertEqual(app.theme, THEMES[-1])
             await pilot.press("ctrl+t")
             await pilot.pause()
             self.assertEqual(app.theme, THEMES[0])  # wraps around to noneto-dark
@@ -230,6 +238,7 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.player.snapshot.return_value = PlaybackState(tracks=(app.tracks[0],), index=0,
                                                               status="Playing", duration=178)
             await pilot.click("#pause")
+            await pilot.pause()  # Wait for Button.Pressed before checking its callback.
             self.player.send.assert_called_with("pause", None)
 
     async def test_quality_badge_and_library_picker_open_playlists(self):
@@ -320,6 +329,84 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.player.send.assert_called_with("repeat", None)
 
+    async def test_song_without_lyrics_shows_the_cover_large_and_centered(self):
+        app = self.make_app()
+        song = track()
+        self.library.media_pending = {song.id: None}
+        self.player.snapshot.return_value = PlaybackState(tracks=(song,), index=0, status="Playing")
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            await pilot.click("#--content-tab-lyrics-view")
+            await pilot.pause()
+            panel, cover = app.query_one(LyricsPanel), app.query_one("#cover", Static)
+            self.assertFalse(panel.centered)  # still loading: the usual layout
+            self.assertEqual(cover.size, (14, 6))
+            self.library.media_pending[song.id].set_result(("", "", False))
+            await pilot.pause()
+            await pilot.pause()
+            self.assertTrue(panel.centered)
+            self.assertFalse(app.query_one("#lyrics-body").display)
+            rows = cover.size.height
+            self.assertGreater(rows, 6)
+            self.assertEqual(cover.size.width, rows * 2)  # square with 1:2 cells
+            self.assertEqual(cover.content.plain.splitlines(), ["▀" * rows * 2] * rows)
+            # Centered in the pane, with a free row above and below.
+            area = panel.content_region
+            self.assertEqual(cover.region.y - area.y, area.bottom - cover.region.bottom)
+            self.assertLessEqual(abs((cover.region.x - area.x) - (area.right - cover.region.right)), 1)
+            # The next song with lyrics goes back to cover + lyrics.
+            second = track("Second", 2)
+            self.player.snapshot.return_value = PlaybackState(tracks=(second,), index=0, status="Playing")
+            app.update_player()
+            await pilot.pause()
+            await pilot.pause()
+            self.assertFalse(panel.centered)
+            self.assertEqual(cover.size, (14, 6))
+            self.assertEqual(len(cover.content.plain.splitlines()), 6)
+
+    async def test_ctrl_o_or_clicking_the_cover_switches_and_saves_the_lyrics_layout(self):
+        chosen = []
+        self.library = FakeLibrary()
+        self.player = Mock(snapshot=Mock(return_value=PlaybackState(tracks=(track(),), index=0, status="Playing")))
+        app = NonetoApp(self.library, self.player, lyrics_layout="cover", on_lyrics_layout=chosen.append)
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause()
+            app.update_player()
+            await pilot.click("#--content-tab-lyrics-view")
+            await pilot.pause()
+            await pilot.pause()
+            panel = app.query_one(LyricsPanel)
+            self.assertTrue(panel.centered)  # saved choice, even though this song has lyrics
+            self.assertFalse(app.query_one("#lyrics-body").display)
+            await pilot.press("ctrl+o")
+            await pilot.pause()
+            self.assertFalse(panel.centered)
+            self.assertTrue(app.query_one("#lyrics-body").display)
+            self.assertIn("Line one", str(app.query_one("#lyrics-text", Static).content))
+            await pilot.click("#cover")
+            await pilot.pause()
+            self.assertTrue(panel.centered)
+            self.assertEqual(chosen, ["lyrics", "cover"])
+            self.assertIn("Ctrl+O", str(app.query_one("#message", Static).content))
+
+    async def test_long_titles_are_cut_instead_of_scrolling_the_table_sideways(self):
+        app = self.make_app()
+        long_song = track("Nine Thou (Grant Mohrman Outta Control Remix) " * 4, 7)
+        async with app.run_test(size=(90, 32)) as pilot:
+            await pilot.pause()
+            app.show_tracks([long_song] + [track(f"Song {i}", i + 10) for i in range(120)])
+            await pilot.pause()
+            table = app.query_one(DataTable)
+            self.assertLessEqual(table.virtual_size.width, table.scrollable_content_region.width)
+            self.assertFalse(table.show_horizontal_scrollbar)
+            self.assertIn("…", "".join(segment.text for segment in table.render_line(1)))
+            header = "".join(segment.text for segment in table.render_line(0))
+            self.assertIn("Duration", header)
+            await pilot.resize_terminal(140, 32)
+            await pilot.pause()
+            self.assertLessEqual(table.virtual_size.width, table.scrollable_content_region.width)
+            self.assertGreater(table.virtual_size.width, 120)  # widens with the terminal
+
     async def test_medium_density_rows_context_and_player_cover(self):
         app = self.make_app()
         self.player.snapshot.return_value = PlaybackState(tracks=(track(),), index=0, status="Playing")
@@ -345,6 +432,35 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(app.query_one("#views").active, "queue-view")
 
+    async def test_graphics_terminal_draws_full_resolution_cover(self):
+        from textual_image.widget import SixelImage
+        self.library = FakeLibrary()
+        self.player = Mock(snapshot=Mock(return_value=PlaybackState(tracks=(track(),), index=0, status="Playing")))
+        app = NonetoApp(self.library, self.player, artwork=SixelImage)
+        async with app.run_test(size=(120, 38)) as pilot:
+            await pilot.pause()
+            app.update_player()
+            await pilot.pause()
+            self.assertIn(("artwork", (track(),)), self.library.calls)
+            cover = app.query_one("#cover")
+            self.assertEqual(cover.image.size, (320, 320))
+            self.assertIs(app.query_one("#mini-cover").image, cover.image)
+            self.assertEqual(app.query_one("#mini-cover").size, (6, 3))
+            await pilot.click("#--content-tab-lyrics-view")
+            await pilot.pause()
+            self.assertEqual(cover.size, (12, 6))
+            drawn = cover.children[0].render_lines(Region(0, 0, 12, 6))
+            self.assertIn("\x1bP", "".join(segment.text for segment in drawn[-1]))
+            await pilot.press("ctrl+o")  # cover only: the image widget grows, centered
+            await pilot.pause()
+            await pilot.pause()
+            self.assertGreater(cover.size.height, 6)
+            self.assertEqual(cover.size.width, cover.size.height * 2)
+            self.player.snapshot.return_value = PlaybackState()
+            app.update_player()
+            await pilot.pause()
+            self.assertIsNone(cover.image)
+
     async def test_backend_error_message_does_not_expose_secret(self):
         app = self.make_app()
         async with app.run_test(size=(100, 32)) as pilot:
@@ -368,14 +484,14 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.query_one("#views").active, "lyrics-view")
             self.assertGreater(app.query_one("#lyrics-scroll").size.height, 0)
             self.assertEqual(app.query_one("#progress", ProgressBar).progress, 2)
-            self.assertEqual(app._active_line, 0)
+            self.assertEqual(app.query_one(LyricsPanel).active_line, 0)
             self.assertIn("Line one", str(app.query_one("#lyrics-text", Static).content))
             self.assertTrue(app.query_one("#cover", Static).content.spans)
             self.player.snapshot.return_value = PlaybackState(tracks=(song,), index=0,
                                                               status="Playing", position=4,
                                                               duration=178)
             app.update_player()
-            self.assertEqual(app._active_line, 1)
+            self.assertEqual(app.query_one(LyricsPanel).active_line, 1)
             self.assertEqual(app.query_one("#up-next", Static).content, "No songs in the queue.")
 
     async def test_queue_only_shows_upcoming_tracks_and_progress_click_seeks(self):
@@ -455,6 +571,12 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("New lyrics", content)
             self.assertNotIn("Old lyrics", content)
 
+    def test_shortcuts_avoid_keys_windows_terminal_keeps(self):
+        # Windows Terminal binds Ctrl+V to paste by default: the app never receives that key.
+        keys = {key.strip() for binding in NonetoApp.BINDINGS for key in binding.key.split(",")}
+        self.assertNotIn("ctrl+v", keys)
+        self.assertIn("ctrl+g", keys)
+
     def test_lrc_fallback_and_literal_artwork(self):
         lines, timed = lyric_lines("Solo texto", "")
         self.assertFalse(timed)
@@ -463,11 +585,15 @@ class TuiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(timed)
         self.assertEqual(lines[0], (1, "Antes"))
         self.assertEqual(lines[1], (3.5, "Despues"))
-        art = cover_text(tuple(tuple((20, 90, 140) for _ in range(12)) for _ in range(12)))
+        picture = Image.new("RGB", (640, 640), (20, 90, 140))
+        art = cover_text(picture)
         self.assertEqual(len(art.plain.splitlines()), 6)
         self.assertEqual(len(art.spans), 72)
-        mini = cover_text(tuple(tuple((20, 90, 140) for _ in range(12)) for _ in range(12)), 6)
+        self.assertIn("rgb(20,90,140)", str(art.spans[0].style))
+        mini = cover_text(picture, 6, 3)
         self.assertEqual(mini.plain.splitlines(), ["▀" * 6] * 3)
+        self.assertEqual(cover_text(picture, 40, 20).plain.splitlines(), ["▀" * 40] * 20)
+        self.assertEqual(cover_text(None, 4, 2).plain.splitlines(), ["    "] * 2)
 
     async def test_unexpected_fatal_error_does_not_render_traceback_locals(self):
         app = self.make_app()

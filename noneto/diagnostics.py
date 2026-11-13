@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 import json
 import logging
 from logging.handlers import RotatingFileHandler
-import os
 from pathlib import Path
+from .platform.paths import state_dir
 import re
 import traceback
 from urllib.parse import urlsplit
@@ -18,7 +18,7 @@ _run = None
 
 def configure(directory=None):
     global _run
-    directory = Path(directory) if directory is not None else Path(os.environ["LOCALAPPDATA"]) / "Noneto" / "logs"
+    directory = Path(directory) if directory is not None else state_dir() / "logs"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "noneto.log"
     handler = RotatingFileHandler(path, maxBytes=1024 * 1024, backupCount=2, encoding="utf-8")

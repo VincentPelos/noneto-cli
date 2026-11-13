@@ -31,7 +31,7 @@ def https_url(value, *, hosts=None):
                 or "." not in host or ".." in host
                 or host.endswith((".localhost", ".local", ".internal"))
                 or host.rsplit(".", 1)[-1].isdigit()):
-            raise AppError(_("Invalid network destination."))
+            raise AppError(_("Invalid network destination.")) from None
     else:
         if not address.is_global:
             raise AppError(_("Private network addresses are not allowed."))
