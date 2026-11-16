@@ -47,4 +47,10 @@ build-backend = "hatchling.build"
 packages = ["noneto"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["noneto", "tests", "docs/assets", "README.md", "pyproject.toml", "LICENSE", ".gitattributes", ".gitignore"]
+only-include = [
+    "noneto", "tests", "README.md", "LICENSE", "pyproject.toml", ".gitattributes", ".gitignore",
+    "docs/assets/noneto-logo-black.png", "docs/assets/noneto-logo-white.png",
+    "docs/assets/noneto-symbol-black.svg", "docs/assets/noneto-symbol-white.svg",
+    "CODE_SIGNING.md", "packaging/release.py", "packaging/runtime.lock", "packaging/toolchain.json",
+    "packaging/windows", "packaging/signpath",
+]

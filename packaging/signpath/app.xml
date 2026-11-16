@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="noneto.exe" product-name="Noneto CLI" product-version="${version}" original-filename="noneto.exe">
+      <authenticode-sign description="Noneto CLI" description-url="https://github.com/VincentPelos/noneto-cli" />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

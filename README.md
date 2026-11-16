@@ -158,6 +158,12 @@ noneto --lang es                   # use the Spanish interface
 noneto --logout                    # delete the local session
 ```
 
+## Code signing policy
+
+The published Windows 1.1.1 installer is currently unsigned. We are preparing verifiable
+builds and a signing-service application; no certificate or provider approval is claimed.
+See the [Code signing policy](CODE_SIGNING.md) for maintainers, signing scope and current status.
+
 ## Privacy
 
 - Noneto does not ask for or save your password. Tokens are encrypted with Windows DPAPI for
