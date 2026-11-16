@@ -22,34 +22,59 @@ You need a TIDAL account with playback access.
 
 ## Install
 
+### Windows installer
+
+Download [Noneto CLI 1.1.1 Setup](https://github.com/VincentPelos/noneto-cli/releases/download/v1.1.1/Noneto-CLI-1.1.1-windows-x64-setup.exe).
+It includes a private Python 3.12 runtime and the application libraries; no Python or uv
+installation is required. Setup installs for your user without administrator rights and
+prepares Noneto's pinned mpv automatically, with SHA-256 verification. Internet access is
+required during setup. Open **Noneto CLI** from Start, or run `noneto` in a new terminal.
+
+### Command line with uv
+
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
 ```powershell
 uv tool install --python 3.12 noneto-cli
+noneto
 ```
 
-Alternatively, install the same package directly from GitHub without Git:
+uv reuses a compatible Python 3.12 interpreter when available, or downloads one if needed.
+It manages the application's libraries in an isolated environment. On the first launch,
+Noneto prepares its pinned mpv in `%LOCALAPPDATA%\Noneto\mpv` if missing, verifies its SHA-256,
+and then continues to sign-in. Later launches reuse that copy. A failed download stops
+before sign-in; launch `noneto` again to retry. If the command is not found, run
+`uv tool update-shell` and open a new terminal. `noneto --install-mpv` remains available
+for explicit audio preparation without signing in.
+
+The same Python package can also be installed directly from GitHub, without Git:
 
 ```powershell
 uv tool install --python 3.12 https://github.com/VincentPelos/noneto-cli/releases/download/v1.1.1/noneto_cli-1.1.1-py3-none-any.whl
 ```
 
-Open a new terminal and run `noneto`. On the first launch, Noneto prepares mpv automatically
-if it is missing, verifies the pinned SHA-256, and then continues to sign-in. A failed
-download stops before sign-in; run `noneto` again to retry. Existing mpv installations are
-reused. Installation does not ask for your TIDAL account. `noneto --install-mpv` remains
-available for explicit preparation without signing in.
-
-uv manages Python 3.12 and the isolated application environment. If `noneto` is not found,
-run `uv tool update-shell` and open a new terminal. mpv remains in `%LOCALAPPDATA%\Noneto\mpv`.
+Both routes use Noneto's own mpv rather than an arbitrary mpv on PATH. The installer keeps
+mpv alongside the application; uv uses the data directory above. Each route reuses the
+copy in its own location. Your first TIDAL authorization is still required to listen.
 
 ## Update and uninstall
+
+For a uv installation:
 
 ```powershell
 uv tool upgrade noneto-cli
 uv tool uninstall noneto-cli
-Remove-Item -Recurse "$env:LOCALAPPDATA\Noneto"   # optional: session, logs, and mpv
 ```
+
+For an exe installation, run the newer Setup to update. To uninstall, use **Installed apps**
+in Windows Settings, or run:
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Noneto CLI\unins000.exe"
+```
+
+Both uninstall methods preserve `%LOCALAPPDATA%\Noneto`, including your session and preferences.
+Installing and running Noneto again reuses that data.
 
 ## Use
 
