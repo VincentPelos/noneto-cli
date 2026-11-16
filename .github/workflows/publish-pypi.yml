@@ -1,0 +1,73 @@
+name: Publish PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub release tag to publish
+        required: true
+        type: string
+      publish:
+        description: Publish after verification (false checks files only)
+        default: false
+        type: boolean
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  publish:
+    if: >-
+      github.repository == 'VincentPelos/noneto-cli' &&
+      (github.event_name == 'workflow_dispatch' || vars.PYPI_PUBLISH_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/noneto-cli
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Validate release tag
+        run: |
+          python - <<'PY'
+          import os, re
+          if not re.fullmatch(r'v\d+\.\d+\.\d+', os.environ['RELEASE_TAG']):
+              raise SystemExit('Expected a stable vMAJOR.MINOR.PATCH release tag')
+          PY
+      - name: Download the verified release distributions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir dist \
+            --pattern 'noneto_cli-*.whl' --pattern 'noneto_cli-*.tar.gz' --pattern 'SHA256SUMS.txt'
+      - name: Verify artifact names and SHA-256
+        run: |
+          python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          version = os.environ['RELEASE_TAG'][1:]
+          root = Path('dist')
+          expected = {f'noneto_cli-{version}-py3-none-any.whl', f'noneto_cli-{version}.tar.gz'}
+          actual = {p.name for p in root.iterdir() if p.name != 'SHA256SUMS.txt'}
+          if actual != expected:
+              raise SystemExit('Release contains unexpected or missing distributions')
+          sums = {}
+          for line in (root / 'SHA256SUMS.txt').read_text().splitlines():
+              digest, name = line.split(maxsplit=1)
+              sums[name.lstrip('*')] = digest
+          for name in expected:
+              if hashlib.sha256((root / name).read_bytes()).hexdigest() != sums.get(name):
+                  raise SystemExit(f'SHA-256 mismatch: {name}')
+          (root / 'SHA256SUMS.txt').unlink()
+          print(f'Verified both distributions for {version}')
+          PY
+      - name: Publish with PyPI Trusted Publishing
+        if: github.event_name == 'release' || inputs.publish
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086
+        with:
+          packages-dir: dist/
+          skip-existing: true

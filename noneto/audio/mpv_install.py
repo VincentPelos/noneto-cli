@@ -5,6 +5,7 @@ from pathlib import Path
 from ..platform.paths import data_dir
 import shutil
 import subprocess
+import sys
 import tempfile
 
 import requests
@@ -13,13 +14,15 @@ from ..errors import AppError
 from ..i18n import _
 
 # shinchiro/mpv-winbuild-cmake release 20260927 (mpv a1bf4b6559). Change both together.
-MPV_URL = ("https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260927/"
+MPV_URL = ("https://downloads.sourceforge.net/project/mpv-player-windows/64bit/"
            "mpv-x86_64-20260927-git-a1bf4b6559.7z")
 MPV_SHA256 = "04852d5e37730dfa74dec8f88d7cc80b8f756beb52c354c0a3753d3eb2c030e4"
 MAX_ARCHIVE_BYTES = 256 * 1024 * 1024
 
 
 def mpv_dir():
+    if os.name == "nt" and getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "mpv"
     return data_dir() / "mpv"
 
 

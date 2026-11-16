@@ -22,19 +22,26 @@ You need a TIDAL account with playback access.
 
 ## Install
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/). It creates the `noneto`
-command and downloads Python 3.12 if needed.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
 ```powershell
-uv tool install git+https://github.com/VincentPelos/noneto-cli
-noneto --install-mpv
-noneto
+uv tool install --python 3.12 noneto-cli
 ```
 
-`--install-mpv` downloads a pinned mpv build, verifies its SHA-256 hash, and installs it in
-`%LOCALAPPDATA%\Noneto\mpv`. Noneto CLI uses that build rather than an mpv executable on your PATH.
-Installation does not ask for your TIDAL account. If `noneto` is not found, run
-`uv tool update-shell` and open a new terminal.
+Alternatively, install the same package directly from GitHub without Git:
+
+```powershell
+uv tool install --python 3.12 https://github.com/VincentPelos/noneto-cli/releases/download/v1.1.1/noneto_cli-1.1.1-py3-none-any.whl
+```
+
+Open a new terminal and run `noneto`. On the first launch, Noneto prepares mpv automatically
+if it is missing, verifies the pinned SHA-256, and then continues to sign-in. A failed
+download stops before sign-in; run `noneto` again to retry. Existing mpv installations are
+reused. Installation does not ask for your TIDAL account. `noneto --install-mpv` remains
+available for explicit preparation without signing in.
+
+uv manages Python 3.12 and the isolated application environment. If `noneto` is not found,
+run `uv tool update-shell` and open a new terminal. mpv remains in `%LOCALAPPDATA%\Noneto\mpv`.
 
 ## Update and uninstall
 

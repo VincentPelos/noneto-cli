@@ -42,7 +42,7 @@ def register_identity():
         if result < 0:
             raise OSError("Cannot create Noneto shortcut")
         call(link, 20, [wintypes.LPCWSTR], sys.executable)
-        call(link, 11, [wintypes.LPCWSTR], "-m noneto")
+        call(link, 11, [wintypes.LPCWSTR], "" if getattr(sys, "frozen", False) else "-m noneto")
         call(link, 7, [wintypes.LPCWSTR], "Noneto CLI")
         icon = Path(__file__).resolve().parents[1] / "assets/noneto.ico"
         call(link, 17, [wintypes.LPCWSTR, ctypes.c_int], str(icon), 0)

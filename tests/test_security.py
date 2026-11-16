@@ -196,7 +196,7 @@ class SecurityTests(unittest.TestCase):
 
     def test_dependency_runtime_error_does_not_leak_tokens(self):
         output = io.StringIO()
-        with patch("noneto.app.find_mpv"), patch("noneto.app.create_session", side_effect=RuntimeError("access_token=TOP_SECRET")), \
+        with patch("noneto.app.find_mpv"), patch("noneto.app.install_mpv"), patch("noneto.app.create_session", side_effect=RuntimeError("access_token=TOP_SECRET")), \
              patch("noneto.app.configure", return_value=Path("test-diagnostics.log")), \
              patch("noneto.app.emit"), patch("noneto.app.failure"), \
              contextlib.redirect_stdout(output):

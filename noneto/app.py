@@ -7,7 +7,7 @@ import tempfile
 from .auth.service import login, logout
 from .auth.storage import SessionPersistence
 from .audio.controller import PlaybackController
-from .audio.mpv_install import install_mpv
+from .audio.mpv_install import install_mpv, mpv_dir
 from .audio.player import Player, find_mpv
 from .audio.streams import stream_target
 from .services.library import Library
@@ -59,6 +59,9 @@ def main(argv=None):
         else:
             ui.notify("logs-ready", path=log_path)
         emit("app.started", quality=args.quality)
+        if os.name == "nt" and not (mpv_dir() / "mpv.exe").is_file():
+            ui.notify("mpv-installing")
+            ui.notify("mpv-ready", path=install_mpv())
         find_mpv()
         ui.notify("welcome")
         session = create_session(args.quality)
