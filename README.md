@@ -22,15 +22,7 @@ You need a TIDAL account with playback access.
 
 ## Install
 
-### Windows installer
-
-Download [Noneto CLI 1.1.1 Setup](https://github.com/VincentPelos/noneto-cli/releases/download/v1.1.1/Noneto-CLI-1.1.1-windows-x64-setup.exe).
-It includes a private Python 3.12 runtime and the application libraries; no Python or uv
-installation is required. Setup installs for your user without administrator rights and
-prepares Noneto's pinned mpv automatically, with SHA-256 verification. Internet access is
-required during setup. Open **Noneto CLI** from Start, or run `noneto` in a new terminal.
-
-### Command line with uv
+### Command line with uv (recommended)
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then:
 
@@ -53,9 +45,8 @@ The same Python package can also be installed directly from GitHub, without Git:
 uv tool install --python 3.12 https://github.com/VincentPelos/noneto-cli/releases/download/v1.1.1/noneto_cli-1.1.1-py3-none-any.whl
 ```
 
-Both routes use Noneto's own mpv rather than an arbitrary mpv on PATH. The installer keeps
-mpv alongside the application; uv uses the data directory above. Each route reuses the
-copy in its own location. Your first TIDAL authorization is still required to listen.
+The PyPI and GitHub options install the same CLI and use Noneto's managed mpv above.
+Your first TIDAL authorization is still required to listen.
 
 ## Update and uninstall
 
@@ -66,8 +57,9 @@ uv tool upgrade noneto-cli
 uv tool uninstall noneto-cli
 ```
 
-For an exe installation, run the newer Setup to update. To uninstall, use **Installed apps**
-in Windows Settings, or run:
+The previously published unsigned Windows installer remains in the release archive.
+Installer development and code signing are on hold. If you already installed that version,
+uninstall it using **Installed apps** in Windows Settings, or run:
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\Noneto CLI\unins000.exe"
@@ -160,8 +152,8 @@ noneto --logout                    # delete the local session
 
 ## Code signing policy
 
-The published Windows 1.1.1 installer is currently unsigned. We are preparing verifiable
-builds and a signing-service application; no certificate or provider approval is claimed.
+CLI installation with uv is recommended. Installer development and code signing are on hold;
+the archived Windows 1.1.1 installer is unsigned. No certificate or provider approval is claimed.
 See the [Code signing policy](CODE_SIGNING.md) for maintainers, signing scope and current status.
 
 ## Privacy

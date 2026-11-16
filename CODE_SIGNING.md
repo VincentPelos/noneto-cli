@@ -1,6 +1,7 @@
 # Code signing policy
 
-Current status: **signing is being prepared; the published Windows 1.1.1 files are unsigned**.
+Current status: **installer development and code signing are on hold; install the CLI with uv**.
+The previously published Windows 1.1.1 installer remains unsigned.
 Noneto has not yet been accepted by SignPath Foundation. An unsigned build or a successful
 build workflow does not mean a certificate has been issued or a file has been signed.
 
@@ -43,7 +44,8 @@ See [TIDAL's privacy notice](https://tidal.com/privacy),
 
 ## Planned provider
 
-We are preparing an application to [SignPath Foundation](https://signpath.org/).
+An application draft to [SignPath Foundation](https://signpath.org/) was prepared but has
+not been submitted. There is no active signing application while this work is on hold.
 If accepted, this policy and release pages will identify the actual signing provider and
 certificate publisher, including the attribution required by their terms. No sponsorship,
 certificate, approval, or removal of SmartScreen warnings is claimed while that is pending.
